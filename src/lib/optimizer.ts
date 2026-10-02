@@ -82,10 +82,21 @@ function maximumAssignable(eligiblePlantsByOrder: Map<string, Set<string>>, ware
 }
 
 export function findMinimumHorizon(eligiblePlantsByOrder: Map<string, Set<string>>, warehouses: Warehouse[], maxDays = 30) {
-  for (let horizonDays = 1; horizonDays <= maxDays; horizonDays += 1) {
-    if (maximumAssignable(eligiblePlantsByOrder, warehouses, horizonDays) === eligiblePlantsByOrder.size) {
-      return horizonDays;
-    }
+  const totalDailyCapacity = warehouses.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0);
+  if (totalDailyCapacity === 0) return null;
+  const exclusiveOrdersByPlant = new Map<string, number>();
+  for (const eligiblePlants of eligiblePlantsByOrder.values()) {
+    if (eligiblePlants.size !== 1) continue;
+    const [plant] = eligiblePlants;
+    exclusiveOrdersByPlant.set(plant, (exclusiveOrdersByPlant.get(plant) ?? 0) + 1);
+  }
+  let lowerBound = Math.ceil(eligiblePlantsByOrder.size / totalDailyCapacity);
+  for (const warehouse of warehouses) {
+    const forcedOrders = exclusiveOrdersByPlant.get(warehouse.id) ?? 0;
+    lowerBound = Math.max(lowerBound, Math.ceil(forcedOrders / warehouse.dailyCapacity));
+  }
+  for (let horizonDays = lowerBound; horizonDays <= maxDays; horizonDays += 1) {
+    if (maximumAssignable(eligiblePlantsByOrder, warehouses, horizonDays) === eligiblePlantsByOrder.size) return horizonDays;
   }
   return null;
 }
@@ -99,10 +110,13 @@ export async function solveMinimumCost(
   const optimizer = await solver();
   const capacity = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.dailyCapacity * horizonDays]));
   const routes = [...routesByOrder.values()].flat();
-  const scoreRoute = options.routeScore ?? ((route: Route) => route.totalCost);
   const model: LP = {
     name: "supply-chain-routing",
-    objective: { direction: optimizer.GLP_MIN, name: "cost", vars: routes.map((route) => ({ name: route.id, coef: scoreRoute(route) })) },
+    objective: {
+      direction: optimizer.GLP_MIN,
+      name: "cost",
+      vars: routes.map((route) => ({ name: route.id, coef: options.routeScore ? options.routeScore(route) : route.totalCost })),
+    },
     subjectTo: [],
     binaries: routes.map((route) => route.id),
   };
