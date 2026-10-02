@@ -7,10 +7,10 @@ import { prisma } from "@/lib/db";
 export const runtime = "nodejs";
 
 const scenarioInput = z.object({
-  capacityFactor: z.number().min(0.5).max(2),
-  freightRateFactor: z.number().min(0.5).max(2),
-  warehouseCostFactor: z.number().min(0.5).max(2),
-  transitPriority: z.number().min(0).max(1_000),
+  problem: z.enum(["minimum-cost", "cost-time"]),
+  capacityFactor: z.number().min(0.5).max(2).default(1),
+  freightRateFactor: z.number().min(0.5).max(2).default(1),
+  warehouseCostFactor: z.number().min(0.5).max(2).default(1),
 });
 
 export async function POST(request: Request) {

@@ -44,7 +44,11 @@ $$\sum_o \sum_{r:p(r)=p}x_{or}\leq H\,\mathrm{capacity}_p \quad \forall p$$
 
 ## Cost/time trade-off
 
-The dashboard compares candidate-route cost with freight transit days. A goal-programming extension minimises normalised cost and transit-time overruns against user targets. CRF transit time is excluded because it is customer-controlled.
+The second model applies a weighted multi-criteria objective to DTD/DTP routes:
+
+$$\min \sum_o \sum_{r \in R_o}\left(c_{or}+3{,}000\,t_{or}\right)x_{or}$$
+
+where $t_{or}$ is freight transit days. The 3,000-dollar-per-day equivalent is a stated policy weight, not a customer charge. The dashboard reports the unweighted company cost and average transit time separately. CRF transit time is excluded because it is customer-controlled.
 
 ## Sensitivity analysis
 

@@ -95,19 +95,45 @@ export function getDashboardAnalysis(): DashboardAnalysis {
   return cachedAnalysis;
 }
 
-export async function solveScenario(input: { capacityFactor: number; freightRateFactor: number; warehouseCostFactor: number; transitPriority: number }) {
+export interface ScenarioInput {
+  problem: "minimum-cost" | "cost-time";
+  capacityFactor: number;
+  freightRateFactor: number;
+  warehouseCostFactor: number;
+}
+
+export interface ConstraintStabilityRow {
+  plant: string;
+  used: number;
+  rhs: number;
+  slack: number;
+  guaranteedDecrease: number;
+  guaranteedDecreasePercent: number;
+}
+
+export async function solveScenario(input: ScenarioInput) {
   getDashboardAnalysis();
   if (!cachedRoutes || !cachedWarehouses) throw new Error("Analysis data was not initialised.");
   const adjustedWarehouses = scaledWarehouses(cachedWarehouses, input.capacityFactor);
   const eligible = eligiblePlantsByOrder(cachedRoutes.routesByOrder);
   const horizonDays = findMinimumHorizon(eligible, adjustedWarehouses, 30);
-  if (!horizonDays) return { status: "infeasible" as const, horizonDays: null, objectiveCost: null, assignments: [], plantLoads: {} };
+  if (!horizonDays) return { status: "infeasible" as const, horizonDays: null, objectiveCost: null, companyCost: null, averageTransitDays: null, assignments: [], plantLoads: {}, constraints: [] as ConstraintStabilityRow[] };
+  const timePenalty = input.problem === "cost-time" ? 3_000 : 0;
   const routeScore = (route: Route) => {
     const adjustedWarehouse = route.warehouseCost * input.warehouseCostFactor;
     const adjustedFreight = route.freightCost * input.freightRateFactor;
-    const transitPenalty = route.transitDays === null ? 0 : route.transitDays * input.transitPriority;
+    const transitPenalty = route.transitDays === null ? 0 : route.transitDays * timePenalty;
     return adjustedWarehouse + adjustedFreight + transitPenalty;
   };
   const solved = await solveMinimumCost(cachedRoutes.routesByOrder, adjustedWarehouses, horizonDays, { routeScore });
-  return { ...solved, horizonDays };
+  const controllableAssignments = solved.assignments.filter((assignment) => assignment.transitDays !== null);
+  const companyCost = solved.assignments.reduce((sum, assignment) => sum + assignment.totalCost, 0);
+  const averageTransitDays = controllableAssignments.length === 0 ? null : controllableAssignments.reduce((sum, assignment) => sum + (assignment.transitDays ?? 0), 0) / controllableAssignments.length;
+  const constraints = adjustedWarehouses.map((warehouse) => {
+    const rhs = warehouse.dailyCapacity * horizonDays;
+    const used = solved.plantLoads[warehouse.id] ?? 0;
+    const slack = rhs - used;
+    return { plant: warehouse.id, used, rhs, slack, guaranteedDecrease: slack, guaranteedDecreasePercent: rhs === 0 ? 0 : (slack / rhs) * 100 };
+  }).sort((left, right) => left.slack - right.slack);
+  return { ...solved, horizonDays, companyCost, averageTransitDays, constraints, timePenalty };
 }
