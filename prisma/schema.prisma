@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model DatasetImport {
+  id          String      @id @default(cuid())
+  sourcePath  String
+  rowCount    Int
+  diagnostics Json
+  createdAt   DateTime    @default(now())
+  scenarios   Scenario[]
+}
+
+model Scenario {
+  id          String      @id @default(cuid())
+  importId    String
+  name        String
+  horizonDays Int
+  parameters  Json
+  createdAt   DateTime    @default(now())
+  dataset     DatasetImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  solve       SolveResult?
+}
+
+model SolveResult {
+  id               String   @id @default(cuid())
+  scenarioId       String   @unique
+  status           String
+  objectiveCost    Float?
+  assignedOrders   Int
+  minimumDays      Int
+  diagnostics      Json
+  assignments      Json
+  createdAt        DateTime @default(now())
+  scenario         Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+}

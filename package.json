@@ -1,0 +1,42 @@
+{
+  "name": "supply-chain-or",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitated semiconductor logistics optimisation dashboard",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maanu-v/OR-Supply-Chain-Optimisation.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@prisma/client": "^7.10.0",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "glpk.js": "^5.0.0",
+    "lucide-react": "^1.50.0",
+    "next": "^16.3.8",
+    "prisma": "^8.0.0-rc.19",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.7.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  }
+}
