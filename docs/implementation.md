@@ -27,6 +27,10 @@ npm run dev
 
 Open `http://localhost:3000`. The dashboard reads the supplied workbook from `data/Supply chain logistics problem.xlsx` when running locally.
 
+## Dashboard results
+
+The optimisation tab offers a small fixed scenario library: baseline, freight +20%, warehouse cost +20%, capacity −20%, and time-focused routing. Every completed solve exposes all selected order routes with plant, port, carrier/mode, transit time, warehouse cost, freight cost, and total company cost. The assignment table supports search and 50-row pagination.
+
 ## Data safeguards
 
 - VMI is plant-to-customer eligibility, not customer-to-plant exclusivity.

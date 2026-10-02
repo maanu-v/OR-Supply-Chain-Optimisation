@@ -58,6 +58,15 @@ export interface Route {
 export interface Assignment {
   orderId: string;
   routeId: string;
+  plant: string;
+  originPort: string;
+  carrier: string | null;
+  mode: string | null;
+  routeServiceLevel: string | null;
+  transitDays: number | null;
+  warehouseCost: number;
+  freightCost: number;
+  totalCost: number;
 }
 
 export interface SolveResult {

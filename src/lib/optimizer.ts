@@ -148,6 +148,18 @@ export async function solveMinimumCost(
   const selected = routes.filter((route) => (result.result.vars[route.id] ?? 0) > 0.5);
   const plantLoads: Record<string, number> = {};
   selected.forEach((route) => { plantLoads[route.plant] = (plantLoads[route.plant] ?? 0) + 1; });
-  const assignments: Assignment[] = selected.map((route) => ({ orderId: route.orderId, routeId: route.id }));
+  const assignments: Assignment[] = selected.map((route) => ({
+    orderId: route.orderId,
+    routeId: route.id,
+    plant: route.plant,
+    originPort: route.originPort,
+    carrier: route.carrier,
+    mode: route.mode,
+    routeServiceLevel: route.serviceLevel,
+    transitDays: route.transitDays,
+    warehouseCost: route.warehouseCost,
+    freightCost: route.freightCost,
+    totalCost: route.totalCost,
+  }));
   return { status: status === optimizer.GLP_OPT ? "optimal" : "feasible", objectiveCost: result.result.z, assignments, plantLoads };
 }
