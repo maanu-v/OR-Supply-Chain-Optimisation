@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DatasetTab } from "@/components/dataset-tab";
+import { PlannerTab } from "@/components/planner-tab";
 import { ProblemOneTab } from "@/components/problem-one-tab";
 import { ProblemTwoTab } from "@/components/problem-two-tab";
 import type { DashboardAnalysis } from "@/lib/analysis";
@@ -10,6 +11,7 @@ const tabs = [
   { id: "dataset", label: "Dataset Analysis" },
   { id: "problem-1", label: "Problem 1: Minimum-Cost Assignment" },
   { id: "problem-2", label: "Problem 2: Cost vs Delivery Time" },
+  { id: "planner", label: "Route Planner" },
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -50,6 +52,7 @@ export function Site({ analysis }: { analysis: DashboardAnalysis }) {
         <section hidden={tab !== "dataset"}><DatasetTab analysis={analysis} /></section>
         <section hidden={tab !== "problem-1"}><ProblemOneTab analysis={analysis} /></section>
         <section hidden={tab !== "problem-2"}><ProblemTwoTab analysis={analysis} /></section>
+        <section hidden={tab !== "planner"}><PlannerTab analysis={analysis} /></section>
       </main>
 
       <footer>

@@ -35,6 +35,7 @@ Open `http://localhost:3000`. The dashboard reads the supplied workbook from `da
 - **Dataset Analysis**: tables, relationships, network scale, demand/warehouse/freight charts, constraints, feasibility funnel and capacity horizon.
 - **Problem 1**: IP formulation, solve button, result summary, warehouse load, carrier mix, searchable order-level plan, sensitivity analysis.
 - **Problem 2**: goal-programming formulation, editable targets/weights, goal attainment, comparison with Problem 1, sensitivity analysis and cost vs transit trade-off curve.
+- **Route Planner**: user enters product, customer, service level, quantity and weight and picks an objective (min cost, min transit, or cost + λ·days). `src/lib/planner.ts` enumerates every feasible route for that single order (capacity cannot bind for one order, so this is exact), ranks them, explains which warehouses were filtered out and why, and draws the feasible network with the optimal path highlighted (`/api/plan`).
 
 Sensitivity runs one request per scenario so the page can show progress; each re-solve takes a few seconds. A solve that hits the 45 s time limit with a plan is reported as `feasible` (best plan found) rather than `optimal`.
 

@@ -1,5 +1,6 @@
 import { buildFeasibleRoutes, eligiblePlantsByOrder, type RouteGeneration } from "@/lib/routes";
 import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
+import { planRoute, type PlannerInput } from "@/lib/planner";
 import { loadSourceData } from "@/lib/workbook";
 import { baseFactors, defaultGoal, findScenario, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
 import type { Assignment, Route, SourceData, Warehouse } from "@/lib/types";
@@ -28,6 +29,12 @@ export interface DashboardAnalysis {
   minimumChargeRoutes: { binding: number; total: number };
   routesPerOrder: { bucket: string; orders: number }[];
   capacityHorizon: { label: string; dailyCapacity: number; minimumHorizon: number | null }[];
+  planner: {
+    products: string[];
+    customers: string[];
+    /** First order of OrderList, used to prefill the planner form. */
+    sample: { productId: string; customer: string; serviceLevel: string; quantity: number; weight: number };
+  };
 }
 
 let cachedData: SourceData | undefined;
@@ -189,8 +196,23 @@ export function getDashboardAnalysis(): DashboardAnalysis {
     minimumChargeRoutes,
     routesPerOrder,
     capacityHorizon,
+    planner: {
+      products: [...new Set([...data.productsByPlant.values()].flatMap((set) => [...set]))].sort((left, right) => left.localeCompare(right, "en", { numeric: true })),
+      customers: [...new Set(data.orders.map((order) => order.customer))].sort((left, right) => left.localeCompare(right, "en", { numeric: true })),
+      sample: (() => {
+        // prefill with the freight-paying order that has the most alternative warehouses, so the planner has real choices to show
+        const order = data.orders
+          .filter((candidate) => candidate.serviceLevel !== "CRF")
+          .reduce((best, candidate) => ((eligible.get(candidate.id)?.size ?? 0) > (eligible.get(best.id)?.size ?? 0) ? candidate : best));
+        return { productId: order.productId, customer: order.customer, serviceLevel: order.serviceLevel, quantity: order.quantity, weight: Math.round(order.weight * 100) / 100 };
+      })(),
+    },
   };
   return cachedAnalysis;
+}
+
+export function planOrder(input: PlannerInput) {
+  return planRoute(sourceData(), input);
 }
 
 // ---------------------------------------------------------------------------
