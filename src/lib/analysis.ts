@@ -1,180 +1,332 @@
 import { buildFeasibleRoutes, eligiblePlantsByOrder, type RouteGeneration } from "@/lib/routes";
-import { findMinimumHorizon, solveMinimumCost } from "@/lib/optimizer";
+import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
 import { loadSourceData } from "@/lib/workbook";
-import type { Route, Warehouse } from "@/lib/types";
-
-export interface ScenarioSummary {
-  label: string;
-  capacityFactor: number;
-  dailyCapacity: number;
-  minimumHorizon: number | null;
-}
+import { baseFactors, defaultGoal, findScenario, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
+import type { Assignment, Route, SourceData, Warehouse } from "@/lib/types";
 
 export interface DashboardAnalysis {
   source: { orders: number; warehouses: number; freightRates: number; duplicateFreightRowsRemoved: number; crfOrders: number };
-  feasibility: { zeroCandidateOrders: number; candidateRoutes: number; minimumHorizon: number | null; exclusiveOrders: number };
-  capacity: { plant: string; dailyCapacity: number; exclusiveOrders: number; minimumDaysForExclusiveOrders: number }[];
-  sensitivity: ScenarioSummary[];
-  modeMix: { mode: string; routes: number }[];
-  carrierMix: { carrier: string; routes: number }[];
-  dataset: {
-    tables: { name: string; rows: number; columns: number; role: string; answer: string }[];
-    historical: { customers: number; products: number; plants: number; originPorts: number; destinationPorts: number; carriers: number; orderDate: string };
-    transport: { carrierOptions: number; originPorts: number; destinationPorts: number; airRateRows: number; groundRateRows: number; dtdRateRows: number; dtpRateRows: number };
-    warehouseCost: { minimum: number; maximum: number; cheapestPlant: string; highestCostPlant: string };
-    capacity: { dailyTotal: number; highestPlant: string; highestCapacity: number };
-    serviceLevels: { name: string; orders: number; meaning: string }[];
+  feasibility: {
+    zeroCandidateOrders: number;
+    candidateRoutes: number;
+    unfilteredCombinations: number;
+    ordersWithOnePlant: number;
+    averageRoutesPerOrder: number;
+    minimumHorizon: number | null;
+    lowerBoundHorizon: number;
   };
+  tables: { name: string; rows: number; columns: number; role: string }[];
+  scale: { label: string; value: string; source: string }[];
+  warehouses: { plant: string; unitCost: number; dailyCapacity: number; products: number; ports: string[]; vmi: boolean; historicalOrders: number; singlePlantOrders: number }[];
+  serviceLevels: { name: string; orders: number; meaning: string }[];
+  weightBands: { band: string; orders: number }[];
+  historicalCarriers: { carrier: string; orders: number }[];
+  rateCarriers: { carrier: string; air: number; ground: number; minTransit: number; maxTransit: number }[];
+  transitDays: { days: number; rateLines: number }[];
+  modeStats: { mode: string; rateLines: number; averageRate: number; averageMinimum: number; averageTransit: number }[];
+  /** Freight routes whose price is the carrier's minimum charge rather than weight × rate. */
+  minimumChargeRoutes: { binding: number; total: number };
+  routesPerOrder: { bucket: string; orders: number }[];
+  capacityHorizon: { label: string; dailyCapacity: number; minimumHorizon: number | null }[];
 }
 
+let cachedData: SourceData | undefined;
 let cachedAnalysis: DashboardAnalysis | undefined;
 let cachedRoutes: RouteGeneration | undefined;
-let cachedWarehouses: Warehouse[] | undefined;
+
+function sourceData() {
+  cachedData ??= loadSourceData();
+  return cachedData;
+}
+
+function baseRoutes() {
+  cachedRoutes ??= buildFeasibleRoutes(sourceData());
+  return cachedRoutes;
+}
 
 function scaledWarehouses(warehouses: Warehouse[], capacityFactor: number) {
   return warehouses.map((warehouse) => ({ ...warehouse, dailyCapacity: Math.floor(warehouse.dailyCapacity * capacityFactor) }));
 }
 
+function countBy<T>(items: T[], key: (item: T) => string) {
+  const counts = new Map<string, number>();
+  items.forEach((item) => counts.set(key(item), (counts.get(key(item)) ?? 0) + 1));
+  return counts;
+}
+
 export function getDashboardAnalysis(): DashboardAnalysis {
   if (cachedAnalysis) return cachedAnalysis;
-  const data = loadSourceData();
-  const generated = buildFeasibleRoutes(data);
+  const data = sourceData();
+  const generated = baseRoutes();
   const eligible = eligiblePlantsByOrder(generated.routesByOrder);
-  const exclusiveOrders = new Map<string, number>();
+
+  const singlePlantOrders = new Map<string, number>();
   for (const plants of eligible.values()) {
-    if (plants.size === 1) {
-      const [plant] = plants;
-      exclusiveOrders.set(plant, (exclusiveOrders.get(plant) ?? 0) + 1);
-    }
+    if (plants.size !== 1) continue;
+    const [plant] = plants;
+    singlePlantOrders.set(plant, (singlePlantOrders.get(plant) ?? 0) + 1);
   }
-  const capacity = data.warehouses
-    .map((warehouse) => {
-      const forcedOrders = exclusiveOrders.get(warehouse.id) ?? 0;
-      return {
-        plant: warehouse.id,
-        dailyCapacity: warehouse.dailyCapacity,
-        exclusiveOrders: forcedOrders,
-        minimumDaysForExclusiveOrders: forcedOrders === 0 ? 0 : Math.ceil(forcedOrders / warehouse.dailyCapacity),
-      };
-    })
-    .sort((left, right) => right.minimumDaysForExclusiveOrders - left.minimumDaysForExclusiveOrders);
-  const scenarios = [
-    { label: "−20%", capacityFactor: 0.8 },
-    { label: "−10%", capacityFactor: 0.9 },
-    { label: "Baseline", capacityFactor: 1 },
-    { label: "+10%", capacityFactor: 1.1 },
-    { label: "+20%", capacityFactor: 1.2 },
-  ].map((scenario) => {
-    const warehouses = scaledWarehouses(data.warehouses, scenario.capacityFactor);
+  const historicalByPlant = countBy(data.orders, (order) => order.historicalPlant);
+  const warehouses = data.warehouses.map((warehouse) => ({
+    plant: warehouse.id,
+    unitCost: warehouse.unitCost,
+    dailyCapacity: warehouse.dailyCapacity,
+    products: data.productsByPlant.get(warehouse.id)?.size ?? 0,
+    ports: [...(data.portsByPlant.get(warehouse.id) ?? [])].sort(),
+    vmi: data.vmiCustomersByPlant.has(warehouse.id),
+    historicalOrders: historicalByPlant.get(warehouse.id) ?? 0,
+    singlePlantOrders: singlePlantOrders.get(warehouse.id) ?? 0,
+  })).sort((left, right) => Number(left.plant.replace(/\D/g, "")) - Number(right.plant.replace(/\D/g, "")));
+
+  const totalDailyCapacity = data.warehouses.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0);
+  const capacityHorizon = [0.8, 0.9, 1, 1.1, 1.2].map((factor) => {
+    const scaled = scaledWarehouses(data.warehouses, factor);
     return {
-      ...scenario,
-      dailyCapacity: warehouses.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0),
-      minimumHorizon: findMinimumHorizon(eligible, warehouses, 14),
+      label: factor === 1 ? "Baseline" : `${factor > 1 ? "+" : "−"}${Math.round(Math.abs(factor - 1) * 100)}%`,
+      dailyCapacity: scaled.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0),
+      minimumHorizon: findMinimumHorizon(eligible, scaled, 14),
     };
   });
-  const routes = [...generated.routesByOrder.values()].flat();
-  const modeCounts = new Map<string, number>();
-  const carrierCounts = new Map<string, number>();
-  routes.forEach((route) => {
-    if (route.mode) modeCounts.set(route.mode, (modeCounts.get(route.mode) ?? 0) + 1);
-    if (route.carrier) carrierCounts.set(route.carrier, (carrierCounts.get(route.carrier) ?? 0) + 1);
+
+  const weightEdges = [0, 1, 5, 10, 50, 100, 500, Infinity];
+  const weightBands = weightEdges.slice(0, -1).map((low, index) => {
+    const high = weightEdges[index + 1];
+    return {
+      band: high === Infinity ? `${low}+ kg` : `${low}–${high} kg`,
+      orders: data.orders.filter((order) => order.weight >= low && order.weight < high).length,
+    };
   });
-  const historicalCustomers = new Set(data.orders.map((order) => order.customer));
-  const historicalProducts = new Set(data.orders.map((order) => order.productId));
-  const historicalPlants = new Set(data.orders.map((order) => order.historicalPlant));
-  const historicalOriginPorts = new Set(data.orders.map((order) => order.historicalOriginPort));
-  const historicalDestinationPorts = new Set(data.orders.map((order) => order.destinationPort));
-  const historicalCarriers = new Set(data.orders.map((order) => order.historicalCarrier));
-  const rateCarriers = new Set(data.rates.map((rate) => rate.carrier));
-  const rateOriginPorts = new Set(data.rates.map((rate) => rate.originPort));
-  const rateDestinationPorts = new Set(data.rates.map((rate) => rate.destinationPort));
-  const costsAscending = [...data.warehouses].sort((left, right) => left.unitCost - right.unitCost);
-  const capacityDescending = [...data.warehouses].sort((left, right) => right.dailyCapacity - left.dailyCapacity);
-  const ordersByServiceLevel = new Map<string, number>();
-  data.orders.forEach((order) => ordersByServiceLevel.set(order.serviceLevel, (ordersByServiceLevel.get(order.serviceLevel) ?? 0) + 1));
+
+  const carriers = [...new Set(data.rates.map((rate) => rate.carrier))].sort();
+  const rateCarriers = carriers.map((carrier) => {
+    const rates = data.rates.filter((rate) => rate.carrier === carrier);
+    return {
+      carrier,
+      air: rates.filter((rate) => rate.mode === "AIR").length,
+      ground: rates.filter((rate) => rate.mode === "GROUND").length,
+      minTransit: Math.min(...rates.map((rate) => rate.transitDays)),
+      maxTransit: Math.max(...rates.map((rate) => rate.transitDays)),
+    };
+  });
+  const transitCounts = countBy(data.rates, (rate) => String(rate.transitDays));
+  const transitDays = [...transitCounts].map(([days, rateLines]) => ({ days: Number(days), rateLines })).sort((left, right) => left.days - right.days);
+  const average = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+  const modeStats = [...new Set(data.rates.map((rate) => rate.mode))].sort().map((mode) => {
+    const rates = data.rates.filter((rate) => rate.mode === mode);
+    return {
+      mode,
+      rateLines: rates.length,
+      averageRate: average(rates.map((rate) => rate.rate)),
+      averageMinimum: average(rates.map((rate) => rate.minimumCost)),
+      averageTransit: average(rates.map((rate) => rate.transitDays)),
+    };
+  });
+  const minimumByRate = new Map(data.rates.map((rate) => [rate.id, rate.minimumCost]));
+  const freightRoutes = [...generated.routesByOrder.values()].flat().filter((route) => route.carrier !== null);
+  const minimumChargeRoutes = {
+    total: freightRoutes.length,
+    // route ids end with the rate id: `${order}|${plant}|${port}|${rate}`
+    binding: freightRoutes.filter((route) => route.freightCost === minimumByRate.get(route.id.slice(route.id.lastIndexOf("|") + 1))).length,
+  };
+
+  const routeCounts = [...generated.routesByOrder.values()].map((routes) => routes.length);
+  const routeBuckets: [string, number, number][] = [["1–5", 1, 5], ["6–10", 6, 10], ["11–20", 11, 20], ["21–50", 21, 50], ["51–100", 51, 100], ["100+", 101, Infinity]];
+  const routesPerOrder = routeBuckets.map(([bucket, low, high]) => ({ bucket, orders: routeCounts.filter((count) => count >= low && count <= high).length }));
+
+  const ports = new Set([...data.portsByPlant.values()].flatMap((set) => [...set]));
+  const plantPortLinks = [...data.portsByPlant.values()].reduce((sum, set) => sum + set.size, 0);
+  const servicesByName = countBy(data.orders, (order) => order.serviceLevel);
+  const customers = new Set(data.orders.map((order) => order.customer)).size;
+  const products = new Set(data.orders.map((order) => order.productId)).size;
+
   cachedAnalysis = {
     source: {
       orders: data.orders.length,
       warehouses: data.warehouses.length,
-      freightRates: data.rates.length,
+      freightRates: data.rates.length + data.duplicatesRemoved,
       duplicateFreightRowsRemoved: data.duplicatesRemoved,
-      crfOrders: data.orders.filter((order) => order.serviceLevel === "CRF").length,
+      crfOrders: servicesByName.get("CRF") ?? 0,
     },
     feasibility: {
       zeroCandidateOrders: generated.diagnostics.zeroCandidateOrders.length,
       candidateRoutes: generated.diagnostics.candidateRoutes,
-      minimumHorizon: scenarios.find((scenario) => scenario.capacityFactor === 1)?.minimumHorizon ?? null,
-      exclusiveOrders: [...exclusiveOrders.values()].reduce((sum, count) => sum + count, 0),
+      unfilteredCombinations: data.orders.length * data.warehouses.length * ports.size * carriers.length,
+      ordersWithOnePlant: [...singlePlantOrders.values()].reduce((sum, count) => sum + count, 0),
+      averageRoutesPerOrder: generated.diagnostics.candidateRoutes / data.orders.length,
+      minimumHorizon: capacityHorizon.find((row) => row.label === "Baseline")?.minimumHorizon ?? null,
+      lowerBoundHorizon: Math.ceil(data.orders.length / totalDailyCapacity),
     },
-    capacity,
-    sensitivity: scenarios,
-    modeMix: [...modeCounts].map(([mode, routes]) => ({ mode, routes })).sort((left, right) => right.routes - left.routes),
-    carrierMix: [...carrierCounts].map(([carrier, routes]) => ({ carrier, routes })).sort((left, right) => right.routes - left.routes),
-    dataset: {
-      tables: [
-        { name: "OrderList", rows: 9_215, columns: 14, role: "Historical demand", answer: "What was ordered, by whom, and how was it historically fulfilled?" },
-        { name: "FreightRates", rows: 1_540, columns: 11, role: "Transportation price rules", answer: "Which carrier/lane/weight-band options exist and what do they cost?" },
-        { name: "WhCosts", rows: 19, columns: 2, role: "Warehouse handling cost", answer: "What does one unit cost to handle at each plant?" },
-        { name: "WhCapacities", rows: 19, columns: 2, role: "Daily throughput limit", answer: "How many orders can each plant process per day?" },
-        { name: "ProductsPerPlant", rows: 2_036, columns: 2, role: "Product eligibility", answer: "Which plants stock each product?" },
-        { name: "VmiCustomers", rows: 14, columns: 2, role: "VMI eligibility", answer: "Which customers may a VMI-restricted plant serve?" },
-        { name: "PlantPorts", rows: 22, columns: 2, role: "Physical connectivity", answer: "Which origin ports can each plant use?" },
-      ],
-      historical: { customers: historicalCustomers.size, products: historicalProducts.size, plants: historicalPlants.size, originPorts: historicalOriginPorts.size, destinationPorts: historicalDestinationPorts.size, carriers: historicalCarriers.size, orderDate: data.orders[0]?.orderDate ?? "—" },
-      transport: { carrierOptions: rateCarriers.size, originPorts: rateOriginPorts.size, destinationPorts: rateDestinationPorts.size, airRateRows: data.rates.filter((rate) => rate.mode === "AIR").length, groundRateRows: data.rates.filter((rate) => rate.mode === "GROUND").length, dtdRateRows: data.rates.filter((rate) => rate.serviceLevel === "DTD").length, dtpRateRows: data.rates.filter((rate) => rate.serviceLevel === "DTP").length },
-      warehouseCost: { minimum: costsAscending[0].unitCost, maximum: costsAscending.at(-1)!.unitCost, cheapestPlant: costsAscending[0].id, highestCostPlant: costsAscending.at(-1)!.id },
-      capacity: { dailyTotal: data.warehouses.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0), highestPlant: capacityDescending[0].id, highestCapacity: capacityDescending[0].dailyCapacity },
-      serviceLevels: [
-        { name: "DTP", orders: ordersByServiceLevel.get("DTP") ?? 0, meaning: "Door-to-Port; company arranges freight to destination port." },
-        { name: "DTD", orders: ordersByServiceLevel.get("DTD") ?? 0, meaning: "Door-to-Door; company chooses a priced transport route." },
-        { name: "CRF", orders: ordersByServiceLevel.get("CRF") ?? 0, meaning: "Customer Referred Freight; customer arranges freight, so company pays warehouse cost only." },
-      ],
-    },
+    tables: [
+      { name: "OrderList", rows: data.orders.length, columns: 14, role: "Customer demand: weight, quantity, service level, dates" },
+      { name: "FreightRates", rows: data.rates.length + data.duplicatesRemoved, columns: 11, role: "Carrier lane rates by weight band and service" },
+      { name: "WhCosts", rows: data.warehouses.length, columns: 2, role: "Storage cost per unit at each warehouse" },
+      { name: "WhCapacities", rows: data.warehouses.length, columns: 2, role: "Daily order-handling capacity of each warehouse" },
+      { name: "ProductsPerPlant", rows: [...data.productsByPlant.values()].reduce((sum, set) => sum + set.size, 0), columns: 2, role: "Products each warehouse is able to ship" },
+      { name: "VmiCustomers", rows: [...data.vmiCustomersByPlant.values()].reduce((sum, set) => sum + set.size, 0), columns: 2, role: "Customers restricted to specific warehouses" },
+      { name: "PlantPorts", rows: plantPortLinks, columns: 2, role: "Warehouse to origin-port connectivity" },
+    ],
+    scale: [
+      { label: "Customer orders to be routed", value: data.orders.length.toLocaleString("en-US"), source: "OrderList" },
+      { label: "Distinct customers / products", value: `${customers} / ${products}`, source: "OrderList" },
+      { label: "Warehouses (plants)", value: String(data.warehouses.length), source: "WhCapacities" },
+      { label: "Origin ports / destination ports", value: `${ports.size} / ${new Set(data.orders.map((order) => order.destinationPort)).size}`, source: "PlantPorts" },
+      { label: "Warehouse-to-port connections", value: String(plantPortLinks), source: "PlantPorts" },
+      { label: "Carriers available", value: String(carriers.length), source: "FreightRates" },
+      { label: "Freight rate lines (weight bands)", value: (data.rates.length + data.duplicatesRemoved).toLocaleString("en-US"), source: "FreightRates" },
+      { label: "Service levels / transport modes", value: `${servicesByName.size} / ${new Set(data.rates.map((rate) => rate.mode)).size}`, source: "OrderList" },
+    ],
+    warehouses,
+    serviceLevels: [
+      { name: "DTP", orders: servicesByName.get("DTP") ?? 0, meaning: "Door-to-Port: company pays freight up to the destination port" },
+      { name: "DTD", orders: servicesByName.get("DTD") ?? 0, meaning: "Door-to-Door: company pays freight to the customer" },
+      { name: "CRF", orders: servicesByName.get("CRF") ?? 0, meaning: "Customer Referred Freight: customer arranges freight, company pays warehouse cost only" },
+    ],
+    weightBands,
+    historicalCarriers: [...countBy(data.orders, (order) => order.historicalCarrier)].map(([carrier, orders]) => ({ carrier, orders })).sort((left, right) => right.orders - left.orders),
+    rateCarriers,
+    transitDays,
+    modeStats,
+    minimumChargeRoutes,
+    routesPerOrder,
+    capacityHorizon,
   };
-  cachedRoutes = generated;
-  cachedWarehouses = data.warehouses;
   return cachedAnalysis;
 }
 
-export interface ScenarioInput {
-  problem: "minimum-cost" | "cost-time";
-  capacityFactor: number;
-  freightRateFactor: number;
-  warehouseCostFactor: number;
+// ---------------------------------------------------------------------------
+// Solving
+
+export interface SolveRequest extends Factors {
+  problem: ProblemId;
+  goal?: GoalInput;
 }
 
-export interface ConstraintStabilityRow {
-  plant: string;
-  used: number;
-  rhs: number;
-  slack: number;
-  guaranteedDecrease: number;
-  guaranteedDecreasePercent: number;
+export interface SolveResponse extends SolveSummary {
+  assignments: Assignment[];
+  /** Problem 1 baseline, shown next to Problem 2 results for comparison. */
+  reference?: { totalCost: number | null; averageTransitDays: number | null };
 }
 
-export async function solveScenario(input: ScenarioInput) {
-  getDashboardAnalysis();
-  if (!cachedRoutes || !cachedWarehouses) throw new Error("Analysis data was not initialised.");
-  const adjustedWarehouses = scaledWarehouses(cachedWarehouses, input.capacityFactor);
-  const eligible = eligiblePlantsByOrder(cachedRoutes.routesByOrder);
-  const horizonDays = findMinimumHorizon(eligible, adjustedWarehouses, 30);
-  if (!horizonDays) return { status: "infeasible" as const, horizonDays: null, objectiveCost: null, companyCost: null, averageTransitDays: null, assignments: [], plantLoads: {}, constraints: [] as ConstraintStabilityRow[] };
-  const timePenalty = input.problem === "cost-time" ? 3_000 : 0;
-  const routeScore = (route: Route) => {
-    const adjustedWarehouse = route.warehouseCost * input.warehouseCostFactor;
-    const adjustedFreight = route.freightCost * input.freightRateFactor;
-    const transitPenalty = route.transitDays === null ? 0 : route.transitDays * timePenalty;
-    return adjustedWarehouse + adjustedFreight + transitPenalty;
-  };
-  const solved = await solveMinimumCost(cachedRoutes.routesByOrder, adjustedWarehouses, horizonDays, { routeScore });
-  const controllableAssignments = solved.assignments.filter((assignment) => assignment.transitDays !== null);
-  const companyCost = solved.assignments.reduce((sum, assignment) => sum + assignment.totalCost, 0);
-  const averageTransitDays = controllableAssignments.length === 0 ? null : controllableAssignments.reduce((sum, assignment) => sum + (assignment.transitDays ?? 0), 0) / controllableAssignments.length;
-  const constraints = adjustedWarehouses.map((warehouse) => {
+/** Routes for the scenario: demand scales order quantity and weight, cost factors scale route costs. */
+function scenarioRoutes(factors: Factors) {
+  const base = factors.demandFactor === 1
+    ? baseRoutes()
+    : (() => {
+      const data = sourceData();
+      return buildFeasibleRoutes({ ...data, orders: data.orders.map((order) => ({ ...order, quantity: order.quantity * factors.demandFactor, weight: order.weight * factors.demandFactor })) });
+    })();
+  if (factors.freightRateFactor === 1 && factors.warehouseCostFactor === 1) return base;
+  const routesByOrder = new Map<string, Route[]>();
+  for (const [orderId, routes] of base.routesByOrder) {
+    routesByOrder.set(orderId, routes.map((route) => {
+      const warehouseCost = route.warehouseCost * factors.warehouseCostFactor;
+      const freightCost = route.freightCost * factors.freightRateFactor;
+      return { ...route, warehouseCost, freightCost, totalCost: warehouseCost + freightCost };
+    }));
+  }
+  return { ...base, routesByOrder };
+}
+
+function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDays: number, plantLoads: Record<string, number>) {
+  const controllable = assignments.filter((assignment) => assignment.transitDays !== null);
+  const warehouseCost = assignments.reduce((sum, assignment) => sum + assignment.warehouseCost, 0);
+  const freightCost = assignments.reduce((sum, assignment) => sum + assignment.freightCost, 0);
+  const constraints = warehouses.map((warehouse) => {
     const rhs = warehouse.dailyCapacity * horizonDays;
-    const used = solved.plantLoads[warehouse.id] ?? 0;
-    const slack = rhs - used;
-    return { plant: warehouse.id, used, rhs, slack, guaranteedDecrease: slack, guaranteedDecreasePercent: rhs === 0 ? 0 : (slack / rhs) * 100 };
+    const used = plantLoads[warehouse.id] ?? 0;
+    return { plant: warehouse.id, used, rhs, slack: rhs - used, slackPercent: rhs === 0 ? 0 : ((rhs - used) / rhs) * 100 };
   }).sort((left, right) => left.slack - right.slack);
-  return { ...solved, horizonDays, companyCost, averageTransitDays, constraints, timePenalty };
+  return {
+    totalCost: warehouseCost + freightCost,
+    warehouseCost,
+    freightCost,
+    averageTransitDays: controllable.length === 0 ? null : controllable.reduce((sum, assignment) => sum + (assignment.transitDays ?? 0), 0) / controllable.length,
+    modeSplit: [...countBy(assignments, (assignment) => assignment.mode ?? "CRF (customer)")].map(([mode, orders]) => ({ mode, orders })).sort((left, right) => right.orders - left.orders),
+    carrierSplit: [...countBy(controllable, (assignment) => assignment.carrier ?? "—")].map(([carrier, orders]) => ({ carrier, orders })).sort((left, right) => right.orders - left.orders),
+    plantLoads: warehouses
+      .map((warehouse) => ({ plant: warehouse.id, orders: plantLoads[warehouse.id] ?? 0, capacity: warehouse.dailyCapacity * horizonDays }))
+      .sort((left, right) => left.plant.localeCompare(right.plant, "en", { numeric: true })),
+    constraints,
+  };
+}
+
+const solveCache = new Map<string, Promise<SolveResponse>>();
+
+export function solveScenario(request: SolveRequest): Promise<SolveResponse> {
+  const normalised: SolveRequest = request.problem === "cost-time" ? { ...request, goal: request.goal ?? defaultGoal } : { ...request, goal: undefined };
+  const key = JSON.stringify(normalised);
+  let pending = solveCache.get(key);
+  if (!pending) {
+    pending = runSolve(normalised);
+    pending.catch(() => solveCache.delete(key));
+    solveCache.set(key, pending);
+    // Each cached plan holds ~9k assignments; keep only the most recent plans.
+    if (solveCache.size > 40) solveCache.delete(solveCache.keys().next().value!);
+  }
+  return pending;
+}
+
+async function runSolve(request: SolveRequest): Promise<SolveResponse> {
+  const started = Date.now();
+  const generated = scenarioRoutes(request);
+  const warehouses = scaledWarehouses(sourceData().warehouses, request.capacityFactor);
+  const empty = { totalCost: null, warehouseCost: null, freightCost: null, averageTransitDays: null, modeSplit: [], carrierSplit: [], plantLoads: [], constraints: [], assignments: [] };
+  if (generated.diagnostics.zeroCandidateOrders.length > 0) {
+    return { ...empty, status: "infeasible", horizonDays: null, solveSeconds: 0, message: `${generated.diagnostics.zeroCandidateOrders.length} orders have no freight lane for their scaled weight.` };
+  }
+  const horizonDays = findMinimumHorizon(eligiblePlantsByOrder(generated.routesByOrder), warehouses, 30);
+  if (!horizonDays) {
+    return { ...empty, status: "infeasible", horizonDays: null, solveSeconds: (Date.now() - started) / 1000, message: "Capacity cannot serve every order within 30 days." };
+  }
+
+  let goals;
+  let reference: SolveResponse["reference"];
+  if (request.problem === "cost-time" && request.goal) {
+    const problemOne = await solveScenario({ ...baseFactors, problem: "minimum-cost" });
+    if (problemOne.totalCost === null) throw new Error("Problem 1 baseline is infeasible, so no cost target can be set.");
+    reference = { totalCost: problemOne.totalCost, averageTransitDays: problemOne.averageTransitDays };
+    goals = { ...request.goal, costTarget: problemOne.totalCost * (1 + request.goal.costBudgetPercent / 100) };
+  }
+
+  const solved = await solveAssignment(generated.routesByOrder, warehouses, horizonDays, { goals });
+  const solveSeconds = (Date.now() - started) / 1000;
+  if (solved.status === "infeasible" || solved.status === "error") {
+    return { ...empty, status: solved.status, horizonDays, solveSeconds, message: solved.message };
+  }
+  return {
+    status: solved.status,
+    horizonDays,
+    solveSeconds,
+    assignments: solved.assignments,
+    reference,
+    ...summarise(solved.assignments, warehouses, horizonDays, solved.plantLoads),
+    goal: goals && solved.deviations ? { costTarget: goals.costTarget, transitTarget: goals.transitTarget, costWeight: goals.costWeight, timeWeight: goals.timeWeight, ...solved.deviations } : undefined,
+  };
+}
+
+/** Re-solves one perturbed scenario and compares its plan with the unperturbed plan of the same problem. */
+export async function solveSensitivity(problem: ProblemId, goal: GoalInput | undefined, scenarioId: string): Promise<SensitivityRow> {
+  const scenario = findScenario(scenarioId);
+  if (!scenario) throw new Error(`Unknown sensitivity scenario: ${scenarioId}`);
+  const baseGoal = problem === "cost-time" ? goal ?? defaultGoal : undefined;
+  const scenarioGoal = baseGoal && scenario.transitTarget !== undefined ? { ...baseGoal, transitTarget: scenario.transitTarget } : baseGoal;
+  const [solved, baseline] = await Promise.all([
+    solveScenario({ ...scenario.factors, problem, goal: scenarioGoal }),
+    solveScenario({ ...baseFactors, problem, goal: baseGoal }),
+  ]);
+  let routesChanged: number | null = null;
+  let plantsChanged: number | null = null;
+  if (solved.assignments.length > 0 && baseline.assignments.length > 0) {
+    const baseByOrder = new Map(baseline.assignments.map((assignment) => [assignment.orderId, assignment]));
+    routesChanged = 0;
+    plantsChanged = 0;
+    for (const assignment of solved.assignments) {
+      const before = baseByOrder.get(assignment.orderId);
+      if (!before) continue;
+      if (before.plant !== assignment.plant) plantsChanged += 1;
+      if (before.plant !== assignment.plant || before.originPort !== assignment.originPort || before.carrier !== assignment.carrier || before.mode !== assignment.mode || before.routeServiceLevel !== assignment.routeServiceLevel) routesChanged += 1;
+    }
+  }
+  const { assignments: _assignments, reference: _reference, ...summary } = solved;
+  return { ...summary, scenarioId, routesChanged, plantsChanged };
 }

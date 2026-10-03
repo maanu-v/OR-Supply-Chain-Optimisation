@@ -2,7 +2,7 @@
 
 ## Scope
 
-Route all 9,215 orders through the outbound network at minimum company cost. The source dataset defines warehouse capacity as orders processed per day. A one-day plan is infeasible; a seven-day horizon is the shortest feasible horizon under the source constraints.
+Route all 9,215 orders through the outbound network. The source dataset defines warehouse capacity as orders processed per day. A one-day plan is infeasible; a seven-day horizon is the shortest feasible horizon under the source constraints (checked with a max-flow test).
 
 ## Feasible routes
 
@@ -10,46 +10,30 @@ A route is generated only when its plant stocks the product, the plant permits t
 
 VMI restricts a listed **plant** to listed customers. A plant absent from `VmiCustomers` may serve any customer. For CRF, the customer arranges freight: carrier and freight cost are outside the company decision.
 
-## Variables
+Capacity depends only on the plant, so for every (order, plant) pair routes that are no cheaper and no faster than another route are dropped before solving (`pruneDominated` in `src/lib/optimizer.ts`). Problem 1 keeps only the cheapest route per pair. This is exact.
 
-For each order $o$ and feasible route $r \in R_o$:
+## Problem 1: minimum-cost assignment (integer programme)
 
-$$x_{or} \in \{0, 1\}$$
-
-is one when the route is selected. The planning horizon is $H=7$ days.
-
-## Objective
+For each order $o$ and feasible route $r \in R_o$, $x_{or} \in \{0, 1\}$; horizon $H=7$ days.
 
 $$\min \sum_o \sum_{r \in R_o} c_{or}x_{or}$$
 
-For DTD/DTP:
+with $c_{or}=q_o h_{p(r)}+\max(m_r, w_o f_r)$ for DTD/DTP and $c_{or}=q_o h_{p(r)}$ for CRF.
 
-$$c_{or}=q_o h_{p(r)}+\max(m_r, w_o f_r)$$
+$$\sum_{r \in R_o}x_{or}=1 \quad \forall o \qquad \sum_o \sum_{r:p(r)=p}x_{or}\leq H\,\mathrm{capacity}_p \quad \forall p$$
 
-For CRF:
+## Problem 2: cost vs delivery time (weighted goal programme)
 
-$$c_{or}=q_o h_{p(r)}$$
+Same variables and constraints, plus two goals. $C^*$ is the Problem 1 optimum raised by a user budget %, $T^*$ the target average transit over the $N$ DTD/DTP orders:
 
-where $q_o$ is unit quantity, $h_p$ is warehouse unit cost, $m_r$ is the minimum freight charge, $w_o$ is weight, and $f_r$ is freight rate.
+$$\sum c_{or}x_{or} - d_C^+ \le C^* \qquad \sum t_r x_{or} - d_T^+ \le T^* N$$
 
-## Constraints
+$$\min\ w_C\frac{d_C^+}{C^*} + w_T\frac{d_T^+}{T^* N} + 10^{-3}\frac{\sum c_{or}x_{or}}{C^*}$$
 
-Every order is routed once:
+Only over-achievement is penalised, so the textbook equality form with $d^-$ reduces to these inequalities ($d^-$ is the row slack). The small cost term picks the cheapest plan when both goals are met. The solver objective is multiplied through by $C^*$ so coefficients stay in currency units. Defaults: budget 5 %, $T^*=1$ day, $w_C=w_T=1$.
 
-$$\sum_{r \in R_o}x_{or}=1 \quad \forall o$$
-
-A plant processes no more than its daily order capacity across the horizon:
-
-$$\sum_o \sum_{r:p(r)=p}x_{or}\leq H\,\mathrm{capacity}_p \quad \forall p$$
-
-## Cost/time trade-off
-
-The second model applies a weighted multi-criteria objective to DTD/DTP routes:
-
-$$\min \sum_o \sum_{r \in R_o}\left(c_{or}+3{,}000\,t_{or}\right)x_{or}$$
-
-where $t_{or}$ is freight transit days. The 3,000-dollar-per-day equivalent is a stated policy weight, not a customer charge. The dashboard reports the unweighted company cost and average transit time separately. CRF transit time is excluded because it is customer-controlled.
+Both problems are solved with HiGHS (`highs` WebAssembly build) using a 0.1 % relative MIP gap and a 45 s time limit.
 
 ## Sensitivity analysis
 
-The system re-solves the model after changing capacity, freight rates, warehouse unit costs, or demand. Integer-program assignments do not have stable LP shadow prices; each scenario is therefore independently re-optimised and compared by cost, route changes, utilisation, and minimum feasible horizon.
+Each scenario is re-solved independently (integer programmes have no reliable LP shadow prices) and compared with the unperturbed plan of the same problem: capacity ±10/20 %, freight +10/20 %, warehouse unit cost ±10 %, demand +10/20 % (order quantity and weight scaled, so weight bands are re-evaluated). Problem 2 also sweeps the transit target (0.25–3.5 days) to trace the cost/time trade-off. Scenario definitions live in `src/lib/scenarios.ts`.

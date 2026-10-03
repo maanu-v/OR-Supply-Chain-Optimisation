@@ -5,15 +5,18 @@
 - Next.js and TypeScript
 - SQLite with Prisma
 - XLSX workbook parsing on the server
-- In-memory candidate-route generation and optimiser
-- Tailwind CSS and shadcn-style Radix primitives for the dashboard
+- In-memory candidate-route generation and HiGHS (`highs` WebAssembly) optimiser
+- Plain hand-written CSS (`src/app/globals.css`) and Recharts for figures
 
 ## Modules
 
 - `src/lib/workbook.ts`: parses and validates the seven workbook sheets.
 - `src/lib/routes.ts`: applies source-faithful feasibility rules and prices routes.
-- `src/lib/optimizer.ts`: capacity feasibility, minimum-horizon, and minimum-cost assignment.
-- `src/lib/analysis.ts`: scenario construction and dashboard aggregates.
+- `src/lib/optimizer.ts`: minimum-horizon max-flow check, dominated-route pruning, minimum-cost IP and weighted goal programme.
+- `src/lib/analysis.ts`: dataset statistics, scenario solving (cached in memory) and sensitivity comparison.
+- `src/lib/scenarios.ts`: shared scenario/goal definitions and result types (safe for the browser).
+- `src/app/api/solve`, `src/app/api/sensitivity`: solve one plan / one sensitivity scenario.
+- `src/components/site.tsx`: project website with three tabs (Dataset Analysis, Problem 1, Problem 2).
 - `prisma/schema.prisma`: immutable import, scenario, and solve-result audit records.
 
 ## Run
@@ -27,9 +30,13 @@ npm run dev
 
 Open `http://localhost:3000`. The dashboard reads the supplied workbook from `data/Supply chain logistics problem.xlsx` when running locally.
 
-## Dashboard results
+## Website
 
-The optimisation tab offers a small fixed scenario library: baseline, freight +20%, warehouse cost +20%, capacity −20%, and time-focused routing. Every completed solve exposes all selected order routes with plant, port, carrier/mode, transit time, warehouse cost, freight cost, and total company cost. The assignment table supports search and 50-row pagination.
+- **Dataset Analysis**: tables, relationships, network scale, demand/warehouse/freight charts, constraints, feasibility funnel and capacity horizon.
+- **Problem 1**: IP formulation, solve button, result summary, warehouse load, carrier mix, searchable order-level plan, sensitivity analysis.
+- **Problem 2**: goal-programming formulation, editable targets/weights, goal attainment, comparison with Problem 1, sensitivity analysis and cost vs transit trade-off curve.
+
+Sensitivity runs one request per scenario so the page can show progress; each re-solve takes a few seconds. A solve that hits the 45 s time limit with a plan is reported as `feasible` (best plan found) rather than `optimal`.
 
 ## Data safeguards
 

@@ -1,11 +1,17 @@
-import GLPKFactory, { type GLPK, type LP } from "glpk.js/node";
+import loadHighs from "highs";
 import type { Assignment, Route, SolveResult, Warehouse } from "@/lib/types";
 
-let solverPromise: Promise<GLPK> | undefined;
+type Highs = Awaited<ReturnType<typeof loadHighs>>;
+let solverPromise: Promise<Highs> | undefined;
 
 async function solver() {
-  solverPromise ??= GLPKFactory();
+  solverPromise ??= loadHighs();
   return solverPromise;
+}
+
+/** Writes `coef var` terms in CPLEX LP syntax. */
+function terms(items: { name: string; coef: number }[]) {
+  return items.map(({ name, coef }, index) => `${coef < 0 ? "-" : index === 0 ? "" : "+"} ${Math.abs(coef)} ${name}`).join(" ");
 }
 
 class Dinic {
@@ -101,51 +107,113 @@ export function findMinimumHorizon(eligiblePlantsByOrder: Map<string, Set<string
   return null;
 }
 
-export async function solveMinimumCost(
-  routesByOrder: Map<string, Route[]>,
+export interface GoalSettings {
+  /** Target total company cost (currency units). */
+  costTarget: number;
+  /** Target average transit days across company-controlled (DTD/DTP) orders. */
+  transitTarget: number;
+  costWeight: number;
+  timeWeight: number;
+}
+
+export interface GoalDeviations {
+  costOver: number;
+  costUnder: number;
+  transitOver: number;
+  transitUnder: number;
+}
+
+/**
+ * Capacity only depends on the warehouse, so for each (order, warehouse) pair a route that is
+ * no cheaper and no faster than another one can never be needed. Dropping those is exact and
+ * makes the model much smaller. Without a time goal only the cheapest route per pair survives
+ * (ties broken by shorter transit).
+ */
+function pruneDominated(routesByOrder: Map<string, Route[]>, keepTimeTradeOffs: boolean) {
+  const pruned = new Map<string, Route[]>();
+  for (const [orderId, routes] of routesByOrder) {
+    const byPlant = new Map<string, Route[]>();
+    routes.forEach((route) => byPlant.set(route.plant, [...(byPlant.get(route.plant) ?? []), route]));
+    const kept: Route[] = [];
+    for (const plantRoutes of byPlant.values()) {
+      plantRoutes.sort((left, right) => left.totalCost - right.totalCost || (left.transitDays ?? 0) - (right.transitDays ?? 0));
+      let fastestSoFar = Infinity;
+      for (const route of plantRoutes) {
+        const transit = route.transitDays ?? 0;
+        if (transit >= fastestSoFar) continue;
+        kept.push(route);
+        fastestSoFar = transit;
+        if (!keepTimeTradeOffs) break;
+      }
+    }
+    pruned.set(orderId, kept);
+  }
+  return pruned;
+}
+
+/**
+ * Binary route-assignment model. Without `goals` it minimises total cost (Problem 1).
+ * With `goals` it is a weighted goal programme (Problem 2): it minimises the normalised
+ * over-achievement of the cost and average-transit targets, with a tiny cost tie-break.
+ */
+export async function solveAssignment(
+  allRoutesByOrder: Map<string, Route[]>,
   warehouses: Warehouse[],
   horizonDays: number,
-  options: { routeScore?: (route: Route) => number; timeLimitSeconds?: number } = {},
-): Promise<SolveResult> {
-  const optimizer = await solver();
-  const capacity = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.dailyCapacity * horizonDays]));
+  options: { goals?: GoalSettings; timeLimitSeconds?: number } = {},
+): Promise<SolveResult & { deviations?: GoalDeviations }> {
+  const highs = await solver();
+  const goals = options.goals;
+  const routesByOrder = pruneDominated(allRoutesByOrder, Boolean(goals));
   const routes = [...routesByOrder.values()].flat();
-  const model: LP = {
-    name: "supply-chain-routing",
-    objective: {
-      direction: optimizer.GLP_MIN,
-      name: "cost",
-      vars: routes.map((route) => ({ name: route.id, coef: options.routeScore ? options.routeScore(route) : route.totalCost })),
-    },
-    subjectTo: [],
-    binaries: routes.map((route) => route.id),
-  };
+  // LP-format column names must be simple identifiers; route ids contain dots and pipes
+  const column = new Map(routes.map((route, index) => [route, `x${index}`]));
+  // Goal 2 is expressed on total transit days so it stays linear: avg target × controllable orders.
+  const controllableOrders = [...routesByOrder.values()].filter((orderRoutes) => orderRoutes.some((route) => route.transitDays !== null)).length;
+  const transitTotalTarget = goals ? Math.max(goals.transitTarget * controllableOrders, 1) : 0;
+  // Weighted GP: min w_c·d_c⁺/C* + w_t·d_t⁺/T*. Multiplied through by C* so coefficients stay in
+  // currency units, plus a 0.1% cost tie-break so that, once both goals are met, the cheapest
+  // plan among them is chosen.
+  const objective = goals
+    ? [
+      ...routes.map((route) => ({ name: column.get(route)!, coef: route.totalCost * 1e-3 })),
+      { name: "dcost", coef: goals.costWeight },
+      { name: "dtime", coef: (goals.timeWeight * goals.costTarget) / transitTotalTarget },
+    ]
+    : routes.map((route) => ({ name: column.get(route)!, coef: route.totalCost }));
 
-  for (const [orderId, orderRoutes] of routesByOrder) {
-    model.subjectTo.push({
-      name: `order:${orderId}`,
-      vars: orderRoutes.map((route) => ({ name: route.id, coef: 1 })),
-      bnds: { type: optimizer.GLP_FX, lb: 1, ub: 1 },
-    });
+  const lines = ["Minimize", ` obj: ${terms(objective)}`, "Subject To"];
+  let row = 0;
+  for (const orderRoutes of routesByOrder.values()) {
+    lines.push(` order${row++}: ${terms(orderRoutes.map((route) => ({ name: column.get(route)!, coef: 1 })))} = 1`);
   }
-  for (const [plant, maximumOrders] of capacity) {
-    model.subjectTo.push({
-      name: `capacity:${plant}`,
-      vars: routes.filter((route) => route.plant === plant).map((route) => ({ name: route.id, coef: 1 })),
-      bnds: { type: optimizer.GLP_UP, lb: 0, ub: maximumOrders },
-    });
+  for (const warehouse of warehouses) {
+    const used = routes.filter((route) => route.plant === warehouse.id).map((route) => ({ name: column.get(route)!, coef: 1 }));
+    if (used.length > 0) lines.push(` cap_${warehouse.id}: ${terms(used)} <= ${warehouse.dailyCapacity * horizonDays}`);
   }
+  if (goals) {
+    // Only d⁺ is penalised, so each goal row is written as "achieved − d⁺ ≤ target": d⁻ is the
+    // row slack. This has the same optimum as the textbook equality form with d⁺ and d⁻.
+    lines.push(` goal_cost: ${terms([...routes.map((route) => ({ name: column.get(route)!, coef: route.totalCost })), { name: "dcost", coef: -1 }])} <= ${goals.costTarget}`);
+    const timed = routes.filter((route) => route.transitDays).map((route) => ({ name: column.get(route)!, coef: route.transitDays! }));
+    lines.push(` goal_time: ${terms([...timed, { name: "dtime", coef: -1 }])} <= ${transitTotalTarget}`);
+  }
+  lines.push("Binary", ...routes.map((route) => ` ${column.get(route)}`), "End");
 
-  const result = optimizer.solve(model, { msglev: optimizer.GLP_MSG_OFF, presol: true, tmlim: options.timeLimitSeconds ?? 45, mipgap: 0.001 });
-  const status = result.result.status;
-  if (status === optimizer.GLP_NOFEAS || status === optimizer.GLP_INFEAS) {
+  const result = highs.solve(lines.join("\n"), { time_limit: options.timeLimitSeconds ?? 45, mip_rel_gap: 0.001, output_flag: false });
+  if (result.Status === "Infeasible") {
     return { status: "infeasible", objectiveCost: null, assignments: [], plantLoads: {}, message: "No plan satisfies the selected capacity horizon." };
   }
-  if (status !== optimizer.GLP_OPT && status !== optimizer.GLP_FEAS) {
-    return { status: "error", objectiveCost: null, assignments: [], plantLoads: {}, message: "Solver did not return a feasible plan." };
+  const columns = result.Columns as Record<string, { Primal?: number }>;
+  const hasSolution = routes.length > 0 && columns[column.get(routes[0])!]?.Primal !== undefined;
+  if (!hasSolution || (result.Status !== "Optimal" && result.Status !== "Time limit reached")) {
+    return { status: "error", objectiveCost: null, assignments: [], plantLoads: {}, message: `Solver did not return a feasible plan (${result.Status}).` };
   }
 
-  const selected = routes.filter((route) => (result.result.vars[route.id] ?? 0) > 0.5);
+  const selected = routes.filter((route) => (columns[column.get(route)!]?.Primal ?? 0) > 0.5);
+  if (selected.length !== routesByOrder.size) {
+    return { status: "error", objectiveCost: null, assignments: [], plantLoads: {}, message: `Solver stopped (${result.Status}) before finding a plan that serves every order.` };
+  }
   const plantLoads: Record<string, number> = {};
   selected.forEach((route) => { plantLoads[route.plant] = (plantLoads[route.plant] ?? 0) + 1; });
   const assignments: Assignment[] = selected.map((route) => ({
@@ -161,5 +229,16 @@ export async function solveMinimumCost(
     freightCost: route.freightCost,
     totalCost: route.totalCost,
   }));
-  return { status: status === optimizer.GLP_OPT ? "optimal" : "feasible", objectiveCost: result.result.z, assignments, plantLoads };
+  // deviations are recomputed from the chosen plan so they are exact rather than solver floats
+  const achievedCost = selected.reduce((sum, route) => sum + route.totalCost, 0);
+  const achievedTransit = selected.reduce((sum, route) => sum + (route.transitDays ?? 0), 0) / Math.max(controllableOrders, 1);
+  const deviations = goals
+    ? {
+      costOver: Math.max(achievedCost - goals.costTarget, 0),
+      costUnder: Math.max(goals.costTarget - achievedCost, 0),
+      transitOver: Math.max(achievedTransit - goals.transitTarget, 0),
+      transitUnder: Math.max(goals.transitTarget - achievedTransit, 0),
+    }
+    : undefined;
+  return { status: result.Status === "Optimal" ? "optimal" : "feasible", objectiveCost: result.ObjectiveValue, assignments, plantLoads, deviations };
 }

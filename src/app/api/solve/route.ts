@@ -3,14 +3,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDashboardAnalysis, solveScenario } from "@/lib/analysis";
 import { prisma } from "@/lib/db";
+import { goalSchema, problemSchema } from "@/lib/schemas";
 
 export const runtime = "nodejs";
 
 const scenarioInput = z.object({
-  problem: z.enum(["minimum-cost", "cost-time"]),
+  problem: problemSchema,
   capacityFactor: z.number().min(0.5).max(2).default(1),
   freightRateFactor: z.number().min(0.5).max(2).default(1),
   warehouseCostFactor: z.number().min(0.5).max(2).default(1),
+  demandFactor: z.number().min(0.5).max(2).default(1),
+  goal: goalSchema.optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,17 +31,17 @@ export async function POST(request: Request) {
     await prisma.scenario.create({
       data: {
         importId: imported.id,
-        name: `Capacity ${input.capacityFactor}× / Freight ${input.freightRateFactor}×`,
+        name: input.problem === "minimum-cost" ? "Problem 1: minimum-cost assignment" : "Problem 2: cost vs delivery time",
         horizonDays: solved.horizonDays ?? 0,
         parameters: input,
         solve: {
           create: {
             status: solved.status,
-            objectiveCost: solved.objectiveCost,
+            objectiveCost: solved.totalCost,
             assignedOrders: solved.assignments.length,
             minimumDays: solved.horizonDays ?? 0,
-            diagnostics: { plantLoads: solved.plantLoads, message: "message" in solved ? solved.message ?? null : null },
-            assignments: solved.assignments as Prisma.InputJsonValue,
+            diagnostics: { plantLoads: solved.plantLoads, goal: solved.goal ?? null, message: solved.message ?? null } as Prisma.InputJsonValue,
+            assignments: solved.assignments as unknown as Prisma.InputJsonValue,
           },
         },
       },

@@ -7,4 +7,4 @@ if (analysis.feasibility.zeroCandidateOrders !== 0) {
 if (analysis.feasibility.minimumHorizon !== 7) {
   throw new Error(`Expected a seven-day baseline horizon; received ${analysis.feasibility.minimumHorizon}.`);
 }
-console.log(JSON.stringify({ orders: analysis.source.orders, candidates: analysis.feasibility.candidateRoutes, minimumHorizon: analysis.feasibility.minimumHorizon, sensitivity: analysis.sensitivity }, null, 2));
+console.log(JSON.stringify({ orders: analysis.source.orders, candidates: analysis.feasibility.candidateRoutes, minimumHorizon: analysis.feasibility.minimumHorizon, capacityHorizon: analysis.capacityHorizon }, null, 2));

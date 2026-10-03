@@ -1,27 +1,466 @@
-@import "tailwindcss";
+/* Project website stylesheet - Optimization of Semiconductor Supply Chain Networks */
 
 :root {
-  color-scheme: light;
+  --ink: #222;
+  --muted: #5c5c5c;
+  --line: #d0d0d0;
+  --paper: #fff;
+  --shade: #f4f4f4;
+  --accent: #1d4f91;
+  --link: #1f4e8c;
+  --good: #2c6e2f;
+  --bad: #a3271f;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  background: #f7f8fa;
-  color: #0f172a;
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: normal;
+  line-height: 1.3;
+}
+
+h2 {
+  margin: 38px 0 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 23px;
+  color: var(--accent);
+}
+
+h3 {
+  margin: 26px 0 8px;
+  font-size: 18px;
+}
+
+p {
+  margin: 8px 0 12px;
+}
+
+a {
+  color: var(--link);
+}
+
+code {
+  font-family: Consolas, Menlo, monospace;
+  font-size: 13px;
+  background: var(--shade);
+  padding: 1px 4px;
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
+/* ---------- header / footer ---------- */
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 22px;
+}
+
+.masthead {
+  padding-top: 26px;
+}
+
+.masthead h1 {
+  margin: 0 0 6px;
+  font-size: 32px;
+}
+
+.masthead .sub {
+  margin: 0;
+  color: var(--muted);
+}
+
+.tabbar {
+  display: flex;
+  gap: 4px;
+  margin-top: 22px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.tabbar button {
+  padding: 8px 18px;
+  border: 1px solid var(--line);
+  border-bottom: none;
+  background: var(--shade);
+  color: var(--ink);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.tabbar button.on {
+  background: var(--paper);
+  border-color: var(--ink);
+  border-bottom: 1px solid var(--paper);
+  font-weight: 600;
+}
+
+.tabbar button:hover:not(.on) {
+  background: #e6e4dc;
+}
+
+footer {
+  margin-top: 60px;
+  padding: 18px 0 30px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- content blocks ---------- */
+
+.lead {
+  font-size: 16px;
+}
+
+.question {
+  margin: 14px 0;
+  padding: 10px 16px;
+  border-left: 4px solid var(--accent);
+  background: var(--shade);
+  font-family: Georgia, serif;
+  font-style: italic;
+}
+
+.note {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
+}
+
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  border: 1px solid var(--line);
+  margin: 14px 0;
+}
+
+.numbers div {
+  padding: 10px 12px;
+  border-right: 1px solid var(--line);
+}
+
+.numbers div:last-child {
+  border-right: none;
+}
+
+.numbers b {
+  display: block;
+  font-family: Georgia, serif;
+  font-size: 24px;
+  font-weight: normal;
+}
+
+.numbers span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+ul.plain {
+  padding-left: 20px;
+}
+
+ul.plain li {
+  margin-bottom: 4px;
+}
+
+/* ---------- tables ---------- */
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin: 8px 0 4px;
+}
+
+table.data th,
+table.data td {
+  border: 1px solid var(--line);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+table.data th {
+  background: var(--shade);
+  font-weight: 600;
+}
+
+table.data td.num,
+table.data th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data tr.base td {
+  background: #fbf6e8;
+}
+
+/* columns whose values were chosen by the optimisation solver */
+table.data th.solver {
+  background: #d6e6f7;
+}
+
+table.data td.solver {
+  background: #eef5fc;
+  font-weight: 600;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  background: #d6e6f7;
+  border: 1px solid #9dbbe0;
+}
+
+
+.scroll {
+  overflow-x: auto;
+}
+
+.caption {
+  margin: 4px 0 20px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+  text-align: center;
+}
+
+.up {
+  color: var(--bad);
+}
+
+.down {
+  color: var(--good);
+}
+
+/* ---------- figures ---------- */
+
+figure {
+  margin: 14px 0 0;
+}
+
+.chart-box {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 10px 6px 2px;
+}
+
+.joins {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 16px;
+  text-align: center;
+}
+
+.joins .hub {
+  display: inline-block;
+  border: 2px solid var(--ink);
+  padding: 6px 18px;
+  font-weight: 600;
+}
+
+.joins .spokes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+  position: relative;
+}
+
+.joins .spokes div {
+  border: 1px solid var(--ink);
+  padding: 6px;
+  font-size: 13px;
+  background: var(--paper);
+}
+
+.joins .spokes small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.joins .stem {
+  height: 18px;
+  border-left: 1px solid var(--ink);
+  width: 0;
+  margin: 0 auto;
+}
+
+.funnel div {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--ink);
+  background: #fff;
+  font-size: 14px;
+}
+
+.funnel b {
+  font-family: Georgia, serif;
+  font-weight: normal;
+  font-size: 18px;
+  margin-right: 8px;
+}
+
+/* ---------- equations ---------- */
+
+.eq {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 17px;
+  overflow-x: auto;
+}
+
+.eq .tag {
+  float: right;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.eq i {
+  font-style: italic;
+}
+
+/* ---------- forms / buttons ---------- */
+
+.run {
+  padding: 7px 16px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #fff;
+  cursor: pointer;
+}
+
+.run:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.run.secondary {
+  background: #fff;
+  color: var(--ink);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--shade);
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.controls input {
+  width: 120px;
+  margin-top: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+
+.search {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  width: 280px;
+  max-width: 100%;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pager button {
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.progress {
+  height: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  margin: 8px 0;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.error {
+  color: var(--bad);
+}
+
 .recharts-default-tooltip {
-  border: 1px solid #e2e8f0 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08) !important;
+  border-radius: 0 !important;
+  font-size: 13px;
+}
+
+@media (max-width: 760px) {
+  .two-col,
+  .joins .spokes {
+    grid-template-columns: 1fr;
+  }
+
+  .numbers {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .masthead h1 {
+    font-size: 25px;
+  }
 }
