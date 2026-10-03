@@ -94,3 +94,54 @@ export function SearchSelect({ value, options, onChange, width = 170, label }: {
     </div>
   );
 }
+
+/** Same dropdown, but several options can be ticked; an empty selection means "all". */
+export function MultiSearchSelect({ values, options, onChange, width = 220, label }: { values: string[]; options: string[]; onChange: (values: string[]) => void; width?: number; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+
+  const matches = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return text ? options.filter((option) => option.toLowerCase().includes(text)) : options;
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  // keep the original option order so the summary text is stable
+  const toggle = (option: string) => onChange(values.includes(option) ? values.filter((value) => value !== option) : options.filter((item) => item === option || values.includes(item)));
+  const summary = values.length === 0 ? `All ${label.toLowerCase()}s` : values.length <= 3 ? values.join(", ") : `${values.length} selected: ${values.slice(0, 2).join(", ")}, ...`;
+
+  return (
+    <div className="search-select" ref={root} style={{ width }}>
+      <button type="button" className="search-select-button" aria-haspopup="listbox" aria-expanded={open} aria-label={label} onClick={() => { setQuery(""); setOpen(!open); }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{summary}</span>
+        <span aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="search-select-panel">
+          <input autoFocus value={query} placeholder={`Search ${options.length} ${label.toLowerCase()}s...`} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Escape" && setOpen(false)} />
+          <div className="search-select-actions">
+            <button type="button" onClick={() => onChange(options.filter((option) => values.includes(option) || matches.includes(option)))}>Select {query ? "matches" : "all"}</button>
+            <button type="button" onClick={() => onChange([])}>Clear (= all)</button>
+          </div>
+          <ul role="listbox" aria-multiselectable>
+            {matches.slice(0, maxShown).map((option) => (
+              <li key={option} role="option" aria-selected={values.includes(option)} className={values.includes(option) ? "chosen" : undefined} onMouseDown={(event) => { event.preventDefault(); toggle(option); }}>
+                <input type="checkbox" readOnly checked={values.includes(option)} tabIndex={-1} /> {option}
+              </li>
+            ))}
+            {matches.length === 0 && <li className="empty">No match</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

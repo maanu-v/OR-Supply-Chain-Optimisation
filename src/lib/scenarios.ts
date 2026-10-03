@@ -18,10 +18,10 @@ export interface Factors {
   freightRateFactor: number;
   warehouseCostFactor: number;
   demandFactor: number;
-  /** Limit the capacity / warehouse-cost change to this plant (default: all plants). */
-  plant?: string;
-  /** Limit the freight-rate change to this carrier (default: all carriers). */
-  carrier?: string;
+  /** Limit the capacity / warehouse-cost change to these plants (default: all plants). */
+  plants?: string[];
+  /** Limit the freight-rate change to these carriers (default: all carriers). */
+  carriers?: string[];
 }
 
 export type CustomParameter = "capacity" | "warehouseCost" | "freight" | "demand" | "transitTarget" | "costBudget";
@@ -32,8 +32,8 @@ export interface CustomSensitivityInput {
   changePercent: number;
   /** Absolute value for the Problem 2 goal parameters (days or budget %). */
   value?: number;
-  /** Plant (capacity, warehouse cost) or carrier (freight) the change applies to. */
-  target?: string;
+  /** Plants (capacity, warehouse cost) or carriers (freight) the change applies to; empty = all. */
+  targets?: string[];
 }
 
 export const baseFactors: Factors = { capacityFactor: 1, freightRateFactor: 1, warehouseCostFactor: 1, demandFactor: 1 };

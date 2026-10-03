@@ -13,5 +13,5 @@ export const customSensitivitySchema = z.object({
   parameter: z.enum(["capacity", "warehouseCost", "freight", "demand", "transitTarget", "costBudget"]),
   changePercent: z.number().min(-90).max(200),
   value: z.number().min(0).max(50).optional(),
-  target: z.string().min(1).optional(),
+  targets: z.array(z.string().min(1)).max(30).optional(),
 });

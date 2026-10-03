@@ -51,9 +51,9 @@ function baseRoutes() {
   return cachedRoutes;
 }
 
-/** Scales daily capacity of every plant, or only of `plant` when given. */
-function scaledWarehouses(warehouses: Warehouse[], capacityFactor: number, plant?: string) {
-  return warehouses.map((warehouse) => (plant && warehouse.id !== plant ? warehouse : { ...warehouse, dailyCapacity: Math.floor(warehouse.dailyCapacity * capacityFactor) }));
+/** Scales daily capacity of every plant, or only of `plants` when a non-empty list is given. */
+function scaledWarehouses(warehouses: Warehouse[], capacityFactor: number, plants?: string[]) {
+  return warehouses.map((warehouse) => (plants?.length && !plants.includes(warehouse.id) ? warehouse : { ...warehouse, dailyCapacity: Math.floor(warehouse.dailyCapacity * capacityFactor) }));
 }
 
 function countBy<T>(items: T[], key: (item: T) => string) {
@@ -232,7 +232,7 @@ export interface SolveResponse extends SolveSummary {
 
 /**
  * Routes for the scenario: demand scales order quantity and weight, cost factors scale route
- * costs. `plant` limits the warehouse-cost change to one plant, `carrier` the freight change.
+ * costs. `plants` limits the warehouse-cost change to those plants, `carriers` the freight change.
  */
 function scenarioRoutes(factors: Factors) {
   const base = factors.demandFactor === 1
@@ -245,8 +245,8 @@ function scenarioRoutes(factors: Factors) {
   const routesByOrder = new Map<string, Route[]>();
   for (const [orderId, routes] of base.routesByOrder) {
     routesByOrder.set(orderId, routes.map((route) => {
-      const warehouseCost = route.warehouseCost * (!factors.plant || route.plant === factors.plant ? factors.warehouseCostFactor : 1);
-      const freightCost = route.freightCost * (!factors.carrier || route.carrier === factors.carrier ? factors.freightRateFactor : 1);
+      const warehouseCost = route.warehouseCost * (!factors.plants?.length || factors.plants.includes(route.plant) ? factors.warehouseCostFactor : 1);
+      const freightCost = route.freightCost * (!factors.carriers?.length || (route.carrier !== null && factors.carriers.includes(route.carrier)) ? factors.freightRateFactor : 1);
       return { ...route, warehouseCost, freightCost, totalCost: warehouseCost + freightCost };
     }));
   }
@@ -295,7 +295,7 @@ export function solveScenario(request: SolveRequest): Promise<SolveResponse> {
 async function runSolve(request: SolveRequest): Promise<SolveResponse> {
   const started = Date.now();
   const generated = scenarioRoutes(request);
-  const warehouses = scaledWarehouses(sourceData().warehouses, request.capacityFactor, request.plant);
+  const warehouses = scaledWarehouses(sourceData().warehouses, request.capacityFactor, request.plants);
   const empty = { totalCost: null, warehouseCost: null, freightCost: null, averageTransitDays: null, modeSplit: [], carrierSplit: [], plantLoads: [], constraints: [], assignments: [] };
   if (generated.diagnostics.zeroCandidateOrders.length > 0) {
     return { ...empty, status: "infeasible", horizonDays: null, solveSeconds: 0, message: `${generated.diagnostics.zeroCandidateOrders.length} orders have no freight lane for their scaled weight.` };
@@ -368,15 +368,17 @@ function countChanges(before: Assignment[], after: Assignment[]) {
 /** Turns a user-chosen parameter change into solver factors (and, for Problem 2, goal settings). */
 function customScenario(input: CustomSensitivityInput, baseGoal: GoalInput | undefined) {
   const factor = 1 + input.changePercent / 100;
-  const scope = input.target ? ` at ${input.target}` : "";
+  // sorted so the same selection in a different click order hits the same cached solve
+  const targets = input.targets?.length ? [...new Set(input.targets)].sort((left, right) => left.localeCompare(right, "en", { numeric: true })) : undefined;
+  const scope = targets ? ` at ${targets.join(", ")}` : "";
   const signed = `${input.changePercent > 0 ? "+" : ""}${input.changePercent}%`;
   switch (input.parameter) {
     case "capacity":
-      return { label: `Warehouse capacity ${signed}${scope}`, factors: { ...baseFactors, capacityFactor: factor, plant: input.target }, goal: baseGoal };
+      return { label: `Warehouse capacity ${signed}${scope}`, factors: { ...baseFactors, capacityFactor: factor, plants: targets }, goal: baseGoal };
     case "warehouseCost":
-      return { label: `Warehouse cost per unit ${signed}${scope}`, factors: { ...baseFactors, warehouseCostFactor: factor, plant: input.target }, goal: baseGoal };
+      return { label: `Warehouse cost per unit ${signed}${scope}`, factors: { ...baseFactors, warehouseCostFactor: factor, plants: targets }, goal: baseGoal };
     case "freight":
-      return { label: `Freight rates ${signed}${input.target ? ` for ${input.target}` : ""}`, factors: { ...baseFactors, freightRateFactor: factor, carrier: input.target }, goal: baseGoal };
+      return { label: `Freight rates ${signed}${targets ? ` for ${targets.join(", ")}` : ""}`, factors: { ...baseFactors, freightRateFactor: factor, carriers: targets }, goal: baseGoal };
     case "demand":
       return { label: `Demand (quantity and weight) ${signed}`, factors: { ...baseFactors, demandFactor: factor }, goal: baseGoal };
     case "transitTarget":

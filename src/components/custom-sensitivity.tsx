@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Caption, money, num, pct, postJson } from "@/components/common";
-import { SearchSelect } from "@/components/search-select";
+import { MultiSearchSelect } from "@/components/search-select";
 import type { CustomParameter, CustomSensitivityInput, CustomSensitivityResult, GoalInput, ProblemId, SolveSummary } from "@/lib/scenarios";
 
 const parameters: { id: CustomParameter; label: string; scope?: "plant" | "carrier"; problem2Only?: boolean }[] = [
@@ -13,8 +13,6 @@ const parameters: { id: CustomParameter; label: string; scope?: "plant" | "carri
   { id: "transitTarget", label: "Delivery-time target (days)", problem2Only: true },
   { id: "costBudget", label: "Cost budget (% over Problem 1)", problem2Only: true },
 ];
-
-const allTargets = "All";
 
 function change(before: number | null, after: number | null) {
   if (before === null || after === null || before === 0) return "-";
@@ -56,7 +54,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
   const [parameter, setParameter] = useState<CustomParameter>("capacity");
   const [changePercent, setChangePercent] = useState(-15);
   const [value, setValue] = useState(goal?.transitTarget ?? 1);
-  const [target, setTarget] = useState(allTargets);
+  const [targets, setTargets] = useState<string[]>([]);
   const [result, setResult] = useState<CustomSensitivityResult>();
   const [history, setHistory] = useState<CustomSensitivityResult[]>([]);
   const [busy, setBusy] = useState(false);
@@ -66,7 +64,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
 
   function pick(next: CustomParameter) {
     setParameter(next);
-    setTarget(allTargets);
+    setTargets([]);
     if (next === "transitTarget") setValue(goal?.transitTarget ?? 1);
     if (next === "costBudget") setValue(goal?.costBudgetPercent ?? 5);
   }
@@ -79,7 +77,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
         parameter,
         changePercent: isGoal ? 0 : changePercent,
         value: isGoal ? value : undefined,
-        target: selected.scope && target !== allTargets ? target : undefined,
+        targets: selected.scope && targets.length > 0 ? targets : undefined,
       };
       const response = await postJson<CustomSensitivityResult>("/api/sensitivity", { problem, goal, custom });
       setResult(response);
@@ -106,7 +104,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
       <p>
         Pick any parameter and change it by your own amount. The model is re-solved with the change and compared with the baseline plan, so
         you can see exactly what moves: cost, horizon, which warehouses and carriers gain or lose orders, and which orders are re-routed.
-        Capacity, warehouse cost and freight can be changed for the whole network or for a single warehouse / carrier.
+        Capacity, warehouse cost and freight can be changed for the whole network or for any set of warehouses / carriers you tick.
       </p>
       <div className="controls">
         <label>
@@ -128,8 +126,8 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
         )}
         {selected.scope && (
           <div className="field">
-            Apply to {selected.scope === "plant" ? "warehouse" : "carrier"}
-            <SearchSelect label={selected.scope === "plant" ? "Warehouse" : "Carrier"} value={target} options={[allTargets, ...(selected.scope === "plant" ? plants : carriers)]} onChange={setTarget} width={150} />
+            Apply to {selected.scope === "plant" ? "warehouses" : "carriers"} (tick one or more)
+            <MultiSearchSelect label={selected.scope === "plant" ? "Warehouse" : "Carrier"} values={targets} options={selected.scope === "plant" ? plants : carriers} onChange={setTargets} />
           </div>
         )}
         <button className="run" disabled={busy} onClick={run}>{busy ? "Re-solving..." : "Run custom scenario"}</button>
@@ -157,9 +155,11 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
           </table>
           <Caption>Table {firstTable}: Baseline plan against the custom scenario</Caption>
 
-          {result.plantChanges.length > 0 && (
+          {(result.plantChanges.length > 0 || result.carrierChanges.length > 0) && (
             <div className="two-col">
               <div>
+                {result.plantChanges.length > 0 ? (
+                  <>
                 <table className="data">
                   <thead><tr><th>Warehouse</th><th className="num">Orders before</th><th className="num">Orders after</th><th className="num">Daily capacity before</th><th className="num">Daily capacity after</th></tr></thead>
                   <tbody>
@@ -175,6 +175,8 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
                   </tbody>
                 </table>
                 <Caption>Table {firstTable + 1}: Warehouses whose load or capacity changed</Caption>
+                  </>
+                ) : <p className="note">No warehouse gains or loses orders (orders may swap between warehouses with equal totals).</p>}
               </div>
               <div>
                 {result.carrierChanges.length > 0 ? (

@@ -497,6 +497,26 @@ figure {
   color: var(--accent);
 }
 
+.controls .search-select-panel li input {
+  width: auto;
+  margin: 0 6px 0 0;
+  vertical-align: -1px;
+}
+
+.search-select-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 6px 6px;
+}
+
+.search-select-actions button {
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
 .search-select-panel li.empty {
   color: var(--muted);
   font-size: 13px;
