@@ -18,9 +18,38 @@ export interface Factors {
   freightRateFactor: number;
   warehouseCostFactor: number;
   demandFactor: number;
+  /** Limit the capacity / warehouse-cost change to this plant (default: all plants). */
+  plant?: string;
+  /** Limit the freight-rate change to this carrier (default: all carriers). */
+  carrier?: string;
+}
+
+export type CustomParameter = "capacity" | "warehouseCost" | "freight" | "demand" | "transitTarget" | "costBudget";
+
+export interface CustomSensitivityInput {
+  parameter: CustomParameter;
+  /** % change for capacity, warehouse cost, freight and demand. */
+  changePercent: number;
+  /** Absolute value for the Problem 2 goal parameters (days or budget %). */
+  value?: number;
+  /** Plant (capacity, warehouse cost) or carrier (freight) the change applies to. */
+  target?: string;
 }
 
 export const baseFactors: Factors = { capacityFactor: 1, freightRateFactor: 1, warehouseCostFactor: 1, demandFactor: 1 };
+
+export interface CustomSensitivityResult {
+  label: string;
+  baseline: SolveSummary;
+  scenario: SolveSummary;
+  routesChanged: number | null;
+  plantsChanged: number | null;
+  /** Capacities are per day (horizon-independent). */
+  plantChanges: { plant: string; ordersBefore: number; ordersAfter: number; capacityBefore: number; capacityAfter: number }[];
+  carrierChanges: { carrier: string; ordersBefore: number; ordersAfter: number }[];
+  /** First few re-routed orders, route written as "plant → port → carrier mode service". */
+  examples: { orderId: string; before: string; after: string; costBefore: number; costAfter: number }[];
+}
 
 export type ParameterGroup = "Baseline" | "Warehouse capacity" | "Freight rates" | "Warehouse cost" | "Demand volume" | "Transit target";
 

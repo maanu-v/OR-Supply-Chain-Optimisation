@@ -37,3 +37,5 @@ Both problems are solved with HiGHS (`highs` WebAssembly build) using a 0.1 % re
 ## Sensitivity analysis
 
 Each scenario is re-solved independently (integer programmes have no reliable LP shadow prices) and compared with the unperturbed plan of the same problem: capacity ±10/20 %, freight +10/20 %, warehouse unit cost ±10 %, demand +10/20 % (order quantity and weight scaled, so weight bands are re-evaluated). Problem 2 also sweeps the transit target (0.25–3.5 days) to trace the cost/time trade-off. Scenario definitions live in `src/lib/scenarios.ts`.
+
+Custom scenarios change one parameter by a user-chosen amount. Capacity and warehouse unit cost can be limited to one plant, freight rates to one carrier (`Factors.plant` / `Factors.carrier`); Problem 2 can also change the transit target or cost budget. Each run reports the change in cost, horizon, transit and binding constraints, and lists re-routed orders against the baseline plan.

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { AssignmentTable, axisStyle, Caption, ChartBox, colours, num, PlantLoadChart, postJson, ResultTable } from "@/components/common";
+import { CustomSensitivity } from "@/components/custom-sensitivity";
 import { Sensitivity } from "@/components/sensitivity";
 import type { DashboardAnalysis, SolveResponse } from "@/lib/analysis";
 import { baseFactors } from "@/lib/scenarios";
@@ -129,6 +130,9 @@ export function ProblemOneTab({ analysis }: { analysis: DashboardAnalysis }) {
       <h2>4. Sensitivity Analysis</h2>
       <p className="question">If a key parameter changes, does the optimal plan stay optimal, and at what point does the routing decision actually flip?</p>
       <Sensitivity problem="minimum-cost" section="4" firstFigure={3} firstTable={3} />
+
+      <h2>5. Custom Sensitivity Analysis</h2>
+      <CustomSensitivity problem="minimum-cost" plants={analysis.warehouses.map((row) => row.plant)} carriers={analysis.rateCarriers.map((row) => row.carrier)} firstTable={5} />
     </>
   );
 }

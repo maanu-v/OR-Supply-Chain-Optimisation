@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { AssignmentTable, axisStyle, Caption, ChartBox, colours, money, num, pct, PlantLoadChart, postJson, ResultTable } from "@/components/common";
+import { CustomSensitivity } from "@/components/custom-sensitivity";
 import { Sensitivity } from "@/components/sensitivity";
 import type { DashboardAnalysis, SolveResponse } from "@/lib/analysis";
 import { baseFactors, defaultGoal, targetScenarios, type GoalInput } from "@/lib/scenarios";
@@ -192,7 +193,11 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
         Uses the goal settings of the last solve (cost target +{goal.costBudgetPercent}%, transit target {goal.transitTarget} days, weights{" "}
         {goal.costWeight} : {goal.timeWeight}). {num(targetScenarios.length)} extra solves vary the transit target.
       </p>
-      <Sensitivity key={JSON.stringify(goal)} problem="cost-time" goal={goal} extra={targetScenarios} section="4" firstFigure={4} firstTable={6} />
+      <Sensitivity key={`preset-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} extra={targetScenarios} section="4" firstFigure={4} firstTable={6} />
+
+      <h2>5. Custom Sensitivity Analysis</h2>
+      <p>Uses the same goal settings as the last Problem 2 solve; the delivery-time target and cost budget can also be changed here.</p>
+      <CustomSensitivity key={`custom-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} plants={analysis.warehouses.map((row) => row.plant)} carriers={analysis.rateCarriers.map((row) => row.carrier)} firstTable={9} />
     </>
   );
 }

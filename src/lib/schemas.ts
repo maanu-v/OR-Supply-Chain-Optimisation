@@ -8,3 +8,10 @@ export const goalSchema = z.object({
 });
 
 export const problemSchema = z.enum(["minimum-cost", "cost-time"]);
+
+export const customSensitivitySchema = z.object({
+  parameter: z.enum(["capacity", "warehouseCost", "freight", "demand", "transitTarget", "costBudget"]),
+  changePercent: z.number().min(-90).max(200),
+  value: z.number().min(0).max(50).optional(),
+  target: z.string().min(1).optional(),
+});

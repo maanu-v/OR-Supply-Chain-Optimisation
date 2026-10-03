@@ -2,7 +2,7 @@ import { buildFeasibleRoutes, eligiblePlantsByOrder, type RouteGeneration } from
 import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
 import { planRoute, type PlannerInput } from "@/lib/planner";
 import { loadSourceData } from "@/lib/workbook";
-import { baseFactors, defaultGoal, findScenario, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
+import { baseFactors, defaultGoal, findScenario, type CustomSensitivityInput, type CustomSensitivityResult, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
 import type { Assignment, Route, SourceData, Warehouse } from "@/lib/types";
 
 export interface DashboardAnalysis {
@@ -51,8 +51,9 @@ function baseRoutes() {
   return cachedRoutes;
 }
 
-function scaledWarehouses(warehouses: Warehouse[], capacityFactor: number) {
-  return warehouses.map((warehouse) => ({ ...warehouse, dailyCapacity: Math.floor(warehouse.dailyCapacity * capacityFactor) }));
+/** Scales daily capacity of every plant, or only of `plant` when given. */
+function scaledWarehouses(warehouses: Warehouse[], capacityFactor: number, plant?: string) {
+  return warehouses.map((warehouse) => (plant && warehouse.id !== plant ? warehouse : { ...warehouse, dailyCapacity: Math.floor(warehouse.dailyCapacity * capacityFactor) }));
 }
 
 function countBy<T>(items: T[], key: (item: T) => string) {
@@ -229,7 +230,10 @@ export interface SolveResponse extends SolveSummary {
   reference?: { totalCost: number | null; averageTransitDays: number | null };
 }
 
-/** Routes for the scenario: demand scales order quantity and weight, cost factors scale route costs. */
+/**
+ * Routes for the scenario: demand scales order quantity and weight, cost factors scale route
+ * costs. `plant` limits the warehouse-cost change to one plant, `carrier` the freight change.
+ */
 function scenarioRoutes(factors: Factors) {
   const base = factors.demandFactor === 1
     ? baseRoutes()
@@ -241,8 +245,8 @@ function scenarioRoutes(factors: Factors) {
   const routesByOrder = new Map<string, Route[]>();
   for (const [orderId, routes] of base.routesByOrder) {
     routesByOrder.set(orderId, routes.map((route) => {
-      const warehouseCost = route.warehouseCost * factors.warehouseCostFactor;
-      const freightCost = route.freightCost * factors.freightRateFactor;
+      const warehouseCost = route.warehouseCost * (!factors.plant || route.plant === factors.plant ? factors.warehouseCostFactor : 1);
+      const freightCost = route.freightCost * (!factors.carrier || route.carrier === factors.carrier ? factors.freightRateFactor : 1);
       return { ...route, warehouseCost, freightCost, totalCost: warehouseCost + freightCost };
     }));
   }
@@ -291,7 +295,7 @@ export function solveScenario(request: SolveRequest): Promise<SolveResponse> {
 async function runSolve(request: SolveRequest): Promise<SolveResponse> {
   const started = Date.now();
   const generated = scenarioRoutes(request);
-  const warehouses = scaledWarehouses(sourceData().warehouses, request.capacityFactor);
+  const warehouses = scaledWarehouses(sourceData().warehouses, request.capacityFactor, request.plant);
   const empty = { totalCost: null, warehouseCost: null, freightCost: null, averageTransitDays: null, modeSplit: [], carrierSplit: [], plantLoads: [], constraints: [], assignments: [] };
   if (generated.diagnostics.zeroCandidateOrders.length > 0) {
     return { ...empty, status: "infeasible", horizonDays: null, solveSeconds: 0, message: `${generated.diagnostics.zeroCandidateOrders.length} orders have no freight lane for their scaled weight.` };
@@ -336,19 +340,86 @@ export async function solveSensitivity(problem: ProblemId, goal: GoalInput | und
     solveScenario({ ...scenario.factors, problem, goal: scenarioGoal }),
     solveScenario({ ...baseFactors, problem, goal: baseGoal }),
   ]);
-  let routesChanged: number | null = null;
-  let plantsChanged: number | null = null;
-  if (solved.assignments.length > 0 && baseline.assignments.length > 0) {
-    const baseByOrder = new Map(baseline.assignments.map((assignment) => [assignment.orderId, assignment]));
-    routesChanged = 0;
-    plantsChanged = 0;
-    for (const assignment of solved.assignments) {
-      const before = baseByOrder.get(assignment.orderId);
-      if (!before) continue;
-      if (before.plant !== assignment.plant) plantsChanged += 1;
-      if (before.plant !== assignment.plant || before.originPort !== assignment.originPort || before.carrier !== assignment.carrier || before.mode !== assignment.mode || before.routeServiceLevel !== assignment.routeServiceLevel) routesChanged += 1;
-    }
-  }
+  return { ...summaryOf(solved), scenarioId, ...countChanges(baseline.assignments, solved.assignments) };
+}
+
+function summaryOf(solved: SolveResponse): SolveSummary {
   const { assignments: _assignments, reference: _reference, ...summary } = solved;
-  return { ...summary, scenarioId, routesChanged, plantsChanged };
+  return summary;
+}
+
+const routeText = (assignment: Assignment) => [assignment.plant, assignment.originPort, assignment.carrier ? `${assignment.carrier} ${assignment.mode} ${assignment.routeServiceLevel}` : "customer freight"].join(" → ");
+const sameRoute = (left: Assignment, right: Assignment) => routeText(left) === routeText(right);
+
+function countChanges(before: Assignment[], after: Assignment[]) {
+  if (before.length === 0 || after.length === 0) return { routesChanged: null, plantsChanged: null };
+  const baseByOrder = new Map(before.map((assignment) => [assignment.orderId, assignment]));
+  let routesChanged = 0;
+  let plantsChanged = 0;
+  for (const assignment of after) {
+    const previous = baseByOrder.get(assignment.orderId);
+    if (!previous) continue;
+    if (previous.plant !== assignment.plant) plantsChanged += 1;
+    if (!sameRoute(previous, assignment)) routesChanged += 1;
+  }
+  return { routesChanged, plantsChanged };
+}
+
+/** Turns a user-chosen parameter change into solver factors (and, for Problem 2, goal settings). */
+function customScenario(input: CustomSensitivityInput, baseGoal: GoalInput | undefined) {
+  const factor = 1 + input.changePercent / 100;
+  const scope = input.target ? ` at ${input.target}` : "";
+  const signed = `${input.changePercent > 0 ? "+" : ""}${input.changePercent}%`;
+  switch (input.parameter) {
+    case "capacity":
+      return { label: `Warehouse capacity ${signed}${scope}`, factors: { ...baseFactors, capacityFactor: factor, plant: input.target }, goal: baseGoal };
+    case "warehouseCost":
+      return { label: `Warehouse cost per unit ${signed}${scope}`, factors: { ...baseFactors, warehouseCostFactor: factor, plant: input.target }, goal: baseGoal };
+    case "freight":
+      return { label: `Freight rates ${signed}${input.target ? ` for ${input.target}` : ""}`, factors: { ...baseFactors, freightRateFactor: factor, carrier: input.target }, goal: baseGoal };
+    case "demand":
+      return { label: `Demand (quantity and weight) ${signed}`, factors: { ...baseFactors, demandFactor: factor }, goal: baseGoal };
+    case "transitTarget":
+      if (!baseGoal) throw new Error("The delivery-time target only exists in Problem 2.");
+      return { label: `Transit target ${input.value} days`, factors: baseFactors, goal: { ...baseGoal, transitTarget: input.value ?? baseGoal.transitTarget } };
+    case "costBudget":
+      if (!baseGoal) throw new Error("The cost budget only exists in Problem 2.");
+      return { label: `Cost budget +${input.value}% over Problem 1`, factors: baseFactors, goal: { ...baseGoal, costBudgetPercent: input.value ?? baseGoal.costBudgetPercent } };
+  }
+}
+
+/** One user-defined what-if: re-solve and explain what changed against the baseline plan. */
+export async function solveCustomSensitivity(problem: ProblemId, goal: GoalInput | undefined, input: CustomSensitivityInput): Promise<CustomSensitivityResult> {
+  const baseGoal = problem === "cost-time" ? goal ?? defaultGoal : undefined;
+  const scenario = customScenario(input, baseGoal);
+  const [solved, baseline] = await Promise.all([
+    solveScenario({ ...scenario.factors, problem, goal: scenario.goal }),
+    solveScenario({ ...baseFactors, problem, goal: baseGoal }),
+  ]);
+  // daily capacity, so a longer horizon alone does not make every plant look "changed"
+  const daily = (capacity: number, horizon: number | null) => (horizon ? Math.round(capacity / horizon) : 0);
+  const plantChanges = baseline.plantLoads.map((row) => {
+    const after = solved.plantLoads.find((other) => other.plant === row.plant);
+    return {
+      plant: row.plant,
+      ordersBefore: row.orders,
+      ordersAfter: after?.orders ?? 0,
+      capacityBefore: daily(row.capacity, baseline.horizonDays),
+      capacityAfter: daily(after?.capacity ?? 0, solved.horizonDays),
+    };
+  }).filter((row) => row.ordersBefore !== row.ordersAfter || row.capacityBefore !== row.capacityAfter);
+  const carriers = new Set([...baseline.carrierSplit, ...solved.carrierSplit].map((row) => row.carrier));
+  const carrierChanges = [...carriers].map((carrier) => ({
+    carrier,
+    ordersBefore: baseline.carrierSplit.find((row) => row.carrier === carrier)?.orders ?? 0,
+    ordersAfter: solved.carrierSplit.find((row) => row.carrier === carrier)?.orders ?? 0,
+  })).filter((row) => row.ordersBefore !== row.ordersAfter).sort((left, right) => Math.abs(right.ordersAfter - right.ordersBefore) - Math.abs(left.ordersAfter - left.ordersBefore));
+  const baseByOrder = new Map(baseline.assignments.map((assignment) => [assignment.orderId, assignment]));
+  const examples = solved.assignments
+    .flatMap((assignment) => {
+      const previous = baseByOrder.get(assignment.orderId);
+      return previous && !sameRoute(previous, assignment) ? [{ orderId: assignment.orderId, before: routeText(previous), after: routeText(assignment), costBefore: previous.totalCost, costAfter: assignment.totalCost }] : [];
+    })
+    .slice(0, 20);
+  return { label: scenario.label, baseline: summaryOf(baseline), scenario: summaryOf(solved), ...countChanges(baseline.assignments, solved.assignments), plantChanges, carrierChanges, examples };
 }

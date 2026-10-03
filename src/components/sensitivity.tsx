@@ -60,7 +60,7 @@ export function Sensitivity({ problem, goal, extra = [], section, firstFigure, f
   });
   const ranked = [...influence].sort((left, right) => right[1] - left[1]);
   // smallest perturbation (in either direction) that already changes the routing plan
-  const size = (scenario: SensitivityScenario) => Object.values(scenario.factors).reduce((sum, factor) => sum + Math.abs(factor - 1), 0);
+  const size = ({ factors }: SensitivityScenario) => [factors.capacityFactor, factors.freightRateFactor, factors.warehouseCostFactor, factors.demandFactor].reduce((sum, factor) => sum + Math.abs(factor - 1), 0);
   const firstFlip = (group: string) => parameterRows
     .filter((scenario) => scenario.group === group && (rows[scenario.id].routesChanged ?? 0) > 0)
     .sort((left, right) => size(left) - size(right))[0];
