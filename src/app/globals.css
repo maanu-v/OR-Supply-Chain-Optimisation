@@ -94,10 +94,18 @@ select {
   color: var(--muted);
 }
 
+/* tab bar + section links stay at the top while scrolling */
+.sticky-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--paper);
+  padding-top: 22px;
+}
+
 .tabbar {
   display: flex;
   gap: 4px;
-  margin-top: 22px;
   border-bottom: 1px solid var(--ink);
 }
 
@@ -120,6 +128,43 @@ select {
 
 .tabbar button:hover:not(.on) {
   background: #e6e4dc;
+}
+
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.section-nav button {
+  border: none;
+  background: none;
+  padding: 2px 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.section-nav button:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.section-nav button.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.section-nav .top {
+  margin-left: auto;
+}
+
+/* leave room for the sticky bar when jumping to a heading */
+main h2 {
+  scroll-margin-top: 110px;
 }
 
 footer {
