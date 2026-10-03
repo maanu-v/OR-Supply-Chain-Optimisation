@@ -17,6 +17,14 @@ export interface DashboardAnalysis {
   sensitivity: ScenarioSummary[];
   modeMix: { mode: string; routes: number }[];
   carrierMix: { carrier: string; routes: number }[];
+  dataset: {
+    tables: { name: string; rows: number; columns: number; role: string; answer: string }[];
+    historical: { customers: number; products: number; plants: number; originPorts: number; destinationPorts: number; carriers: number; orderDate: string };
+    transport: { carrierOptions: number; originPorts: number; destinationPorts: number; airRateRows: number; groundRateRows: number; dtdRateRows: number; dtpRateRows: number };
+    warehouseCost: { minimum: number; maximum: number; cheapestPlant: string; highestCostPlant: string };
+    capacity: { dailyTotal: number; highestPlant: string; highestCapacity: number };
+    serviceLevels: { name: string; orders: number; meaning: string }[];
+  };
 }
 
 let cachedAnalysis: DashboardAnalysis | undefined;
@@ -71,6 +79,19 @@ export function getDashboardAnalysis(): DashboardAnalysis {
     if (route.mode) modeCounts.set(route.mode, (modeCounts.get(route.mode) ?? 0) + 1);
     if (route.carrier) carrierCounts.set(route.carrier, (carrierCounts.get(route.carrier) ?? 0) + 1);
   });
+  const historicalCustomers = new Set(data.orders.map((order) => order.customer));
+  const historicalProducts = new Set(data.orders.map((order) => order.productId));
+  const historicalPlants = new Set(data.orders.map((order) => order.historicalPlant));
+  const historicalOriginPorts = new Set(data.orders.map((order) => order.historicalOriginPort));
+  const historicalDestinationPorts = new Set(data.orders.map((order) => order.destinationPort));
+  const historicalCarriers = new Set(data.orders.map((order) => order.historicalCarrier));
+  const rateCarriers = new Set(data.rates.map((rate) => rate.carrier));
+  const rateOriginPorts = new Set(data.rates.map((rate) => rate.originPort));
+  const rateDestinationPorts = new Set(data.rates.map((rate) => rate.destinationPort));
+  const costsAscending = [...data.warehouses].sort((left, right) => left.unitCost - right.unitCost);
+  const capacityDescending = [...data.warehouses].sort((left, right) => right.dailyCapacity - left.dailyCapacity);
+  const ordersByServiceLevel = new Map<string, number>();
+  data.orders.forEach((order) => ordersByServiceLevel.set(order.serviceLevel, (ordersByServiceLevel.get(order.serviceLevel) ?? 0) + 1));
   cachedAnalysis = {
     source: {
       orders: data.orders.length,
@@ -89,6 +110,26 @@ export function getDashboardAnalysis(): DashboardAnalysis {
     sensitivity: scenarios,
     modeMix: [...modeCounts].map(([mode, routes]) => ({ mode, routes })).sort((left, right) => right.routes - left.routes),
     carrierMix: [...carrierCounts].map(([carrier, routes]) => ({ carrier, routes })).sort((left, right) => right.routes - left.routes),
+    dataset: {
+      tables: [
+        { name: "OrderList", rows: 9_215, columns: 14, role: "Historical demand", answer: "What was ordered, by whom, and how was it historically fulfilled?" },
+        { name: "FreightRates", rows: 1_540, columns: 11, role: "Transportation price rules", answer: "Which carrier/lane/weight-band options exist and what do they cost?" },
+        { name: "WhCosts", rows: 19, columns: 2, role: "Warehouse handling cost", answer: "What does one unit cost to handle at each plant?" },
+        { name: "WhCapacities", rows: 19, columns: 2, role: "Daily throughput limit", answer: "How many orders can each plant process per day?" },
+        { name: "ProductsPerPlant", rows: 2_036, columns: 2, role: "Product eligibility", answer: "Which plants stock each product?" },
+        { name: "VmiCustomers", rows: 14, columns: 2, role: "VMI eligibility", answer: "Which customers may a VMI-restricted plant serve?" },
+        { name: "PlantPorts", rows: 22, columns: 2, role: "Physical connectivity", answer: "Which origin ports can each plant use?" },
+      ],
+      historical: { customers: historicalCustomers.size, products: historicalProducts.size, plants: historicalPlants.size, originPorts: historicalOriginPorts.size, destinationPorts: historicalDestinationPorts.size, carriers: historicalCarriers.size, orderDate: data.orders[0]?.orderDate ?? "—" },
+      transport: { carrierOptions: rateCarriers.size, originPorts: rateOriginPorts.size, destinationPorts: rateDestinationPorts.size, airRateRows: data.rates.filter((rate) => rate.mode === "AIR").length, groundRateRows: data.rates.filter((rate) => rate.mode === "GROUND").length, dtdRateRows: data.rates.filter((rate) => rate.serviceLevel === "DTD").length, dtpRateRows: data.rates.filter((rate) => rate.serviceLevel === "DTP").length },
+      warehouseCost: { minimum: costsAscending[0].unitCost, maximum: costsAscending.at(-1)!.unitCost, cheapestPlant: costsAscending[0].id, highestCostPlant: costsAscending.at(-1)!.id },
+      capacity: { dailyTotal: data.warehouses.reduce((sum, warehouse) => sum + warehouse.dailyCapacity, 0), highestPlant: capacityDescending[0].id, highestCapacity: capacityDescending[0].dailyCapacity },
+      serviceLevels: [
+        { name: "DTP", orders: ordersByServiceLevel.get("DTP") ?? 0, meaning: "Door-to-Port; company arranges freight to destination port." },
+        { name: "DTD", orders: ordersByServiceLevel.get("DTD") ?? 0, meaning: "Door-to-Door; company chooses a priced transport route." },
+        { name: "CRF", orders: ordersByServiceLevel.get("CRF") ?? 0, meaning: "Customer Referred Freight; customer arranges freight, so company pays warehouse cost only." },
+      ],
+    },
   };
   cachedRoutes = generated;
   cachedWarehouses = data.warehouses;

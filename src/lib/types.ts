@@ -4,6 +4,10 @@ export interface Order {
   id: string;
   orderDate: string;
   destinationPort: string;
+  historicalOriginPort: string;
+  historicalCarrier: string;
+  historicalPlant: string;
+  historicalTransitDays: number;
   customer: string;
   productId: string;
   quantity: number;

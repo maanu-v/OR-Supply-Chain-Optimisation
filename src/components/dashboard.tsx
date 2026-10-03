@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Activity, ArrowDownRight, ArrowUpRight, CheckCircle2, Database, Factory, LoaderCircle, Route, SlidersHorizontal, Truck, Waves } from "lucide-react";
 import { HorizontalBars, SensitivityLine } from "@/components/charts";
+import { DatasetGuide } from "@/components/dataset-guide";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -122,11 +123,7 @@ export function Dashboard({ initialAnalysis }: { initialAnalysis: DashboardAnaly
           </TabsContent>
 
           <TabsContent value="data" className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card><CardHeader><CardTitle>Route options by transport mode</CardTitle><CardDescription>Candidate DTD/DTP freight routes after origin, destination, and weight-band matching.</CardDescription></CardHeader><CardContent><HorizontalBars data={analysis.modeMix} valueKey="routes" color="bg-teal-700" /></CardContent></Card>
-              <Card><CardHeader><CardTitle>Largest carrier option pools</CardTitle><CardDescription>Available route count, not a selected shipment allocation.</CardDescription></CardHeader><CardContent><HorizontalBars data={analysis.carrierMix.slice(0, 7)} valueKey="routes" color="bg-violet-700" /></CardContent></Card>
-            </div>
-            <Card><CardHeader><CardTitle>Capacity criticality</CardTitle><CardDescription>Minimum days is a lower bound from orders forced to one plant. Plant 03 drives the baseline horizon.</CardDescription></CardHeader><CardContent><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th className="pb-3 font-medium">Plant</th><th className="pb-3 font-medium">Daily capacity</th><th className="pb-3 font-medium">Exclusive orders</th><th className="pb-3 font-medium">Minimum days</th></tr></thead><tbody>{analysis.capacity.slice(0, 8).map((row) => <tr key={row.plant} className="border-b border-slate-100"><td className="py-3 font-medium">{row.plant}</td><td className="py-3">{formatNumber(row.dailyCapacity)}</td><td className="py-3">{formatNumber(row.exclusiveOrders)}</td><td className="py-3"><Badge tone={row.minimumDaysForExclusiveOrders >= 7 ? "warning" : "neutral"}>{row.minimumDaysForExclusiveOrders || "—"}</Badge></td></tr>)}</tbody></table></div></CardContent></Card>
+            <DatasetGuide dataset={analysis.dataset} />
           </TabsContent>
 
           <TabsContent value="optimise" className="space-y-4">
