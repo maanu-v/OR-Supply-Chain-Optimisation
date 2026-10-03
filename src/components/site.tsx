@@ -123,7 +123,9 @@ export function Site({ analysis }: { analysis: DashboardAnalysis }) {
                   {index + 1}. {section.label}
                 </button>
               ))}
-              <button className="top" onClick={() => { clicked.current = undefined; window.scrollTo({ top: 0, behavior: "smooth" }); }}>↑ Top</button>
+              {current !== sections[0].id && (
+                <button className="top" onClick={() => { clicked.current = undefined; window.scrollTo({ top: 0, behavior: "smooth" }); }}>↑ Top</button>
+              )}
             </nav>
           )}
         </div>
