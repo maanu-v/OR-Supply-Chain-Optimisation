@@ -16,7 +16,7 @@
 - `src/lib/analysis.ts`: dataset statistics, scenario solving (cached in memory) and sensitivity comparison.
 - `src/lib/scenarios.ts`: shared scenario/goal definitions and result types (safe for the browser).
 - `src/app/api/solve`, `src/app/api/sensitivity`: solve one plan / one sensitivity scenario.
-- `src/components/site.tsx`: project website with three tabs (Dataset Analysis, Problem 1, Problem 2).
+- `src/components/site.tsx`: project website with four tabs (Dataset Analysis, Problem 1, Problem 2, Route Planner).
 - `prisma/schema.prisma`: immutable import, scenario, and solve-result audit records.
 
 ## Run
@@ -29,6 +29,19 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. The dashboard reads the supplied workbook from `data/Supply chain logistics problem.xlsx` when running locally.
+
+## Deploy
+
+The `Dockerfile` builds a production image; it creates the SQLite solve history in `/tmp` on start and listens on `$PORT`.
+
+```bash
+docker build -t or-site .
+docker run -p 3000:3000 or-site
+```
+
+`render.yaml` is a Render Blueprint for the same image. Measured in a container limited to 512 MB and 1 CPU, a full Problem 1 + Problem 2 sensitivity run peaks at about 480 MB with no restarts, and each re-solve takes 1 to 5 s. With 0.1 CPU (Render's free tier) the first Problem 2 request took about 200 s, so give the service at least half a CPU.
+
+Caches (workbook, feasible routes, the 12 most recent solved plans) are kept on `globalThis` so the page and the API route bundles share one copy.
 
 ## Website
 

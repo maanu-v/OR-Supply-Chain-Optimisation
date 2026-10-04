@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.env
+prisma/dev.db
+tsconfig.tsbuildinfo
+delivarables
+notebooks
+scripts/_*
+.DS_Store
