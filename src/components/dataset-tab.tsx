@@ -20,8 +20,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
   const { feasibility } = analysis;
   const ports = analysis.scale.find((row) => row.label.startsWith("Origin ports"))?.value.split(" / ") ?? [];
   const carriers = analysis.scale.find((row) => row.label === "Carriers available")?.value ?? "";
-  const busiest = [...analysis.warehouses].sort((left, right) => right.singlePlantOrders / right.dailyCapacity - left.singlePlantOrders / left.dailyCapacity)[0];
-  const costs = analysis.warehouses.map((row) => row.unitCost);
 
   return (
     <>
@@ -30,10 +28,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         A global microchip producer needs to fulfil thousands of customer orders through its outbound logistics network. Orders can be routed
         through multiple warehouses, origin ports and transportation carriers. Each warehouse has limited capacity, product availability and
         customer-specific restrictions. Transportation options differ in cost, weight-based pricing, service level and transportation mode.
-      </p>
-      <p>
-        The key challenge is to find cost-effective and feasible logistics decisions while satisfying all customer demand and operational
-        constraints. This page summarises the dataset we used; the next two tabs contain the two optimisation problems.
       </p>
 
       <h2>2. Dataset Overview</h2>
@@ -62,10 +56,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         </table>
       </div>
       <Caption>Table 1: Size and role of each table in the supply chain logistics dataset</Caption>
-      <p>
-        <code>OrderList</code> alone cannot be optimised: cost, feasibility and capacity information live in the other six tables.
-        While loading we found {analysis.source.duplicateFreightRowsRemoved} exact duplicate rows in <code>FreightRates</code>; these are removed before building routes.
-      </p>
 
       <h2>3. Dataset Relationships</h2>
       <figure>
@@ -82,11 +72,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         </div>
         <Caption>Figure 1: Relationships between the seven dataset tables</Caption>
       </figure>
-      <p>
-        Every join acts as a feasibility filter, removing routes an order is not allowed to take. A warehouse is usable only if it stocks the
-        product and is permitted for that customer. Only warehouse-port pairs listed in <code>PlantPorts</code> are physically connected. Only
-        carrier-lane-service combinations present in <code>FreightRates</code> can be priced and selected.
-      </p>
 
       <h3>Scale of the network</h3>
       <table className="data">
@@ -96,7 +81,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         </tbody>
       </table>
       <Caption>Table 2: Scale of the outbound logistics network</Caption>
-      <p>With 19 warehouses, 11 ports and 9 carriers, an order can have hundreds of possible routes, so manual selection is not practical.</p>
 
       <h2>4. Demand Analysis</h2>
       <div className="two-col">
@@ -132,12 +116,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         <tbody>{analysis.serviceLevels.map((row) => <tr key={row.name}><td>{row.name}</td><td className="num">{num(row.orders)}</td><td>{row.meaning}</td></tr>)}</tbody>
       </table>
       <Caption>Table 3: Service levels in OrderList</Caption>
-      <p>
-        Most orders are light (under 10 kg). For {((analysis.minimumChargeRoutes.binding / analysis.minimumChargeRoutes.total) * 100).toFixed(0)}% of
-        the feasible freight routes ({num(analysis.minimumChargeRoutes.binding)} of {num(analysis.minimumChargeRoutes.total)}) the carrier&apos;s
-        <b> minimum charge</b> is higher than weight × rate, so the minimum charge is what gets paid. CRF orders ({num(analysis.source.crfOrders)})
-        only incur warehouse cost because the customer arranges the freight.
-      </p>
 
       <h2>5. Warehouse Analysis</h2>
       <div className="two-col">
@@ -166,11 +144,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
           <Caption>Figure 5: Storage cost per unit at each warehouse</Caption>
         </figure>
       </div>
-      <p>
-        Cost per unit varies from ${Math.min(...costs).toFixed(2)} to ${Math.max(...costs).toFixed(2)} across the warehouses, so warehouse choice
-        alone changes the bill a lot. Capacity is also very uneven - a few plants can handle over a thousand orders a day while others handle
-        only a handful.
-      </p>
       <div className="scroll">
         <table className="data">
           <thead>
@@ -220,10 +193,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
           <Caption>Figure 6: Freight rate lines by transit time</Caption>
         </figure>
       </div>
-      <p>
-        Transit times in the freight data range from {analysis.transitDays[0]?.days} to {analysis.transitDays.at(-1)?.days} days, so for the
-        same order a cheap route and a fast route are often different. This is the trade-off studied in Problem 2.
-      </p>
       <table className="data">
         <thead><tr><th>Mode</th><th className="num">Rate lines</th><th className="num">Avg rate ($/kg)</th><th className="num">Avg minimum charge ($)</th><th className="num">Avg transit (days)</th></tr></thead>
         <tbody>
@@ -233,17 +202,9 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
         </tbody>
       </table>
       <Caption>Table 6: Average freight terms by transport mode</Caption>
-      <p>
-        Interestingly, in this dataset the few ground lines are on average both more expensive and faster than air - the usual
-        &quot;air is fast, ground is cheap&quot; rule does not hold, which is another reason the routes have to be compared by the model.
-      </p>
 
       <h2>7. Constraints in the Problem</h2>
       <ul className="plain">{constraints.map((item) => <li key={item}>{item}</li>)}</ul>
-      <p className="question">
-        These restrictions eliminate most warehouse-port-carrier combinations, so the cheapest feasible route cannot be read off the data and
-        must be found by optimisation.
-      </p>
 
       <h3>Effect of the feasibility filters</h3>
       <div className="two-col">
@@ -269,13 +230,6 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
       </div>
 
       <h3>Capacity check</h3>
-      <p>
-        Warehouse capacity is given in <i>orders per day</i>. If only the total capacity mattered, {feasibility.lowerBoundHorizon} days would be
-        enough for all orders. But {num(feasibility.ordersWithOnePlant)} orders can only go to one warehouse. For example {busiest?.plant} is the only
-        option for {num(busiest?.singlePlantOrders ?? 0)} orders but can process only {num(busiest?.dailyCapacity ?? 0)} orders per day.
-        Using a max-flow check we found that the shortest horizon in which every order can be served is <b>{feasibility.minimumHorizon} days</b>,
-        so both optimisation models plan over this horizon.
-      </p>
       <table className="data">
         <thead><tr><th>Capacity scenario</th><th className="num">Total orders / day</th><th className="num">Minimum feasible horizon</th></tr></thead>
         <tbody>
