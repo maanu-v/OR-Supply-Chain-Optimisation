@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Caption, num, postJson } from "@/components/common";
+import { Caption, ComparisonTable, num, postJson, ScopeChoice } from "@/components/common";
+import type { PlanScope } from "@/lib/combined";
 import { SearchSelect } from "@/components/search-select";
 import type { DashboardAnalysis } from "@/lib/analysis";
 import type { PlannerInput, PlannerObjective, PlannerResult, PlannerRoute } from "@/lib/planner";
@@ -94,6 +95,7 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
     dayValue: 50,
   });
   const [result, setResult] = useState<PlannerResult>();
+  const [scope, setScope] = useState<PlanScope>("new");
   const [solvedFor, setSolvedFor] = useState<PlannerInput>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -103,8 +105,10 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
     setError(undefined);
     try {
       if (!products.includes(form.productId)) throw new Error(`Product ${form.productId} is not stocked by any warehouse in ProductsPerPlant.`);
-      setResult(await postJson<PlannerResult>("/api/plan", form));
-      setSolvedFor(form);
+      // the combined plan is the Problem 1 model, which only minimises cost
+      const input: PlannerInput = scope === "combined" ? { ...form, objective: "cost" } : form;
+      setResult(await postJson<PlannerResult>("/api/plan", { ...input, scope }));
+      setSolvedFor(input);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Planning failed");
     } finally {
@@ -113,19 +117,17 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
   }
 
   const set = <K extends keyof PlannerInput>(key: K, value: PlannerInput[K]) => setForm({ ...form, [key]: value });
-  const best = result?.routes[0];
+  const combined = result?.combined;
+  // with existing orders the solver may pick a dearer route when the cheapest warehouse is full
+  const best = (combined && result?.routes.find((route) => route.routeId === combined.routeId)) || result?.routes[0];
+  const next = combined ? 3 : 2;
+  // top 15 by rank, plus the chosen route when the combined plan picked one further down
+  const ranked = (result?.routes ?? []).map((route, index) => ({ route, index })).filter(({ route, index }) => index < 15 || route === best);
   const objective = objectives.find((item) => item.id === (solvedFor?.objective ?? form.objective))!;
 
   return (
     <>
       <h2>1. Plan a Single Order</h2>
-      <p>
-        Enter the details of a customer order and choose what the company wants to optimise. The page builds every feasible route for this order
-        using the same rules as Problems 1 and 2 (product stock, VMI restrictions, warehouse-port links, carrier lanes and weight bands), prices
-        each route, and picks the best one for the chosen objective. With only one order the warehouse capacity constraint cannot bind, so the
-        feasible set is searched completely and the answer is exact.
-      </p>
-
       <div className="controls">
         <div className="field">
           Product ID
@@ -153,15 +155,18 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
         </label>
       </div>
 
+      <h3>Planning scope</h3>
+      <ScopeChoice name="planner-scope" value={scope} onChange={setScope} />
+
       <h3>Objective function</h3>
       <div className="controls" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
-        {objectives.map((item) => (
+        {objectives.filter((item) => scope === "new" || item.id === "cost").map((item) => (
           <label key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, color: "#222", fontSize: 14 }}>
-            <input type="radio" name="objective" checked={form.objective === item.id} onChange={() => set("objective", item.id)} style={{ width: "auto" }} />
+            <input type="radio" name="objective" checked={scope === "combined" || form.objective === item.id} onChange={() => set("objective", item.id)} style={{ width: "auto" }} />
             {item.label} <code>{item.formula}</code>
           </label>
         ))}
-        {form.objective === "weighted" && (
+        {scope === "new" && form.objective === "weighted" && (
           <label style={{ marginLeft: 24 }}>
             λ - value of one day of delivery time ($)
             <input type="number" min={0} value={form.dayValue} onChange={(event) => set("dayValue", Number(event.target.value))} />
@@ -202,11 +207,17 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
                 <tr><th>Feasible routes compared</th><td>{num(result.routes.length)}</td></tr>
               </tbody>
             </table>
-            <Caption>Table 1: Optimal route for the entered order</Caption>
+            <Caption>Table 1: {combined ? "Route given to the entered order in the combined plan" : "Optimal route for the entered order"}</Caption>
+            {combined && (
+              <>
+                <ComparisonTable comparison={combined} added="this order" />
+                <Caption>Table 2: Effect of this order on the plan of the existing orders</Caption>
+              </>
+            )}
 
             <h3>Network of feasible options</h3>
             <NetworkView result={result} best={best} />
-            <Caption>Figure 1: Every feasible warehouse → port → carrier path for this order; the optimal path is highlighted</Caption>
+            <Caption>Figure 1: Every feasible warehouse → port → carrier path for this order; the chosen path is highlighted</Caption>
 
             <h3>Ranking of feasible routes</h3>
             <div className="scroll">
@@ -215,9 +226,9 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
                   <tr><th className="num">Rank</th><th className="solver">Warehouse</th><th className="solver">Origin port</th><th className="solver">Carrier</th><th className="solver">Mode</th><th>Service</th><th className="num">Transit (days)</th><th className="num">Warehouse cost</th><th className="num">Freight cost</th><th className="num">Total cost</th><th className="num">Objective</th></tr>
                 </thead>
                 <tbody>
-                  {result.routes.slice(0, 15).map((route, index) => (
-                    <tr key={`${route.plant}|${route.originPort}|${carrierLabel(route)}|${index}`} className={index === 0 ? "base" : undefined}>
-                      <td className="num">{index + 1}{index === 0 ? " (optimal)" : ""}</td>
+                  {ranked.map(({ route, index }) => (
+                    <tr key={route.routeId} className={route === best ? "base" : undefined}>
+                      <td className="num">{index + 1}{route === best ? (combined ? " (chosen)" : " (optimal)") : ""}</td>
                       <td className="solver">{route.plant}</td>
                       <td className="solver">{route.originPort}</td>
                       <td className={route.carrier ? "solver" : undefined}>{route.carrier ?? "customer"}</td>
@@ -233,7 +244,7 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
                 </tbody>
               </table>
             </div>
-            <Caption>Table 2: Best {Math.min(15, result.routes.length)} of {num(result.routes.length)} feasible routes under the chosen objective</Caption>
+            <Caption>Table {next}: Best {Math.min(15, result.routes.length)} of {num(result.routes.length)} feasible routes under the chosen objective</Caption>
           </>
         )
       )}
@@ -257,7 +268,7 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
               })}
             </tbody>
           </table>
-          <Caption>Table 3: Feasibility filters applied to each warehouse for this order</Caption>
+          <Caption>Table {next + 1}: Feasibility filters applied to each warehouse for this order</Caption>
         </>
       )}
     </>

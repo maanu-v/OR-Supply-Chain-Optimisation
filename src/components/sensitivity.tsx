@@ -52,29 +52,8 @@ export function Sensitivity({ problem, goal, extra = [], section, firstFigure, f
   const extraRows = extra.filter((scenario) => rows[scenario.id]);
   const finished = done === scenarios.length && !running;
 
-  // which parameter group moves the total cost the most (largest absolute % change)
-  const influence = new Map<string, number>();
-  parameterRows.forEach((scenario) => {
-    const change = Math.abs(costChange(rows[scenario.id], baseline) ?? 0);
-    if (scenario.group !== "Baseline") influence.set(scenario.group, Math.max(influence.get(scenario.group) ?? 0, change));
-  });
-  const ranked = [...influence].sort((left, right) => right[1] - left[1]);
-  // smallest perturbation (in either direction) that already changes the routing plan
-  const size = ({ factors }: SensitivityScenario) => [factors.capacityFactor, factors.freightRateFactor, factors.warehouseCostFactor, factors.demandFactor].reduce((sum, factor) => sum + Math.abs(factor - 1), 0);
-  const firstFlip = (group: string) => parameterRows
-    .filter((scenario) => scenario.group === group && (rows[scenario.id].routesChanged ?? 0) > 0)
-    .sort((left, right) => size(left) - size(right))[0];
-  const totalOrders = baseline?.plantLoads.reduce((sum, row) => sum + row.orders, 0) ?? 0;
-
   return (
     <>
-      <p>
-        We re-solve the same model after changing one parameter at a time and compare the new plan with the baseline plan. Because the model
-        has binary variables, LP shadow prices are not reliable here, so every scenario is solved again from scratch. The perturbations are the
-        ones proposed in our review: warehouse capacity ±10% and ±20%, freight rates +10% and +20%, warehouse per-unit cost ±10%, and demand
-        surges of +10% and +20% (order quantity and weight scaled up).
-        {extra.length > 0 && " For this problem we also tighten and relax the delivery-time target to trace the cost vs time trade-off curve."}
-      </p>
       <p>
         <button className="run" disabled={running !== null} onClick={runAll}>
           {running ? `Solving: ${running} ...` : done > 0 ? "Run sensitivity analysis again" : `Run sensitivity analysis (${scenarios.length} re-solves)`}
@@ -144,35 +123,14 @@ export function Sensitivity({ problem, goal, extra = [], section, firstFigure, f
 
       {finished && baseline && (
         <>
-          <h3>{section}.2 Observations</h3>
-          <ul className="plain">
-            {ranked[0] && <li><b>{ranked[0][0]}</b> has the largest influence on total cost (up to {ranked[0][1].toFixed(2)}%), followed by {ranked.slice(1).map(([group, value]) => `${group.toLowerCase()} (${value.toFixed(2)}%)`).join(", ")}.</li>}
-            {["Warehouse capacity", "Freight rates", "Warehouse cost", "Demand volume"].map((group) => {
-              const flip = firstFlip(group);
-              return (
-                <li key={group}>
-                  {group}: {flip
-                    ? <>the smallest tested change that alters the routing is <b>{flip.label}</b> ({num(rows[flip.id].routesChanged ?? 0)} of {num(totalOrders)} orders re-routed, {num(rows[flip.id].plantsChanged ?? 0)} of them to another warehouse).</>
-                    : <>the optimal plan stays the same for every tested change.</>}
-                </li>
-              );
-            })}
-            <li>
-              Capacity changes also move the planning horizon: {parameterScenarios.filter((scenario) => scenario.group === "Warehouse capacity" && rows[scenario.id]).map((scenario) => `${scenario.label} → ${rows[scenario.id].horizonDays ?? "infeasible"} days`).join(", ")} (baseline {baseline.horizonDays} days).
-            </li>
-          </ul>
-          <h3>{section}.3 Binding capacity constraints (baseline)</h3>
+          <h3>{section}.2 Binding capacity constraints (baseline)</h3>
           <SlackTable result={baseline} table={`Table ${firstTable + 1}`} />
         </>
       )}
 
       {extraRows.length > 0 && (
         <>
-          <h3>{section}.4 Cost vs delivery-time trade-off</h3>
-          <p>
-            Here only the average-transit target of the goal programme is changed (all other goal settings as above). Each point is a separate
-            solve, so together they show how much extra money each day of faster delivery costs.
-          </p>
+          <h3>{section}.3 Cost vs delivery-time trade-off</h3>
           <div className="two-col">
             <figure>
               <ChartBox height={280}>

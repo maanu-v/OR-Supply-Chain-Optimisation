@@ -1,0 +1,8 @@
+# Render Blueprint: builds the Dockerfile and serves the site. Render injects $PORT.
+services:
+  - type: web
+    name: or-supply-chain-optimisation
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/analysis
+    autoDeploy: true

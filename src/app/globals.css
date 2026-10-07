@@ -452,6 +452,13 @@ figure {
   color: var(--ink);
 }
 
+a.run {
+  display: inline-block;
+  font: inherit;
+  font-size: 13.3px;
+  text-decoration: none;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;

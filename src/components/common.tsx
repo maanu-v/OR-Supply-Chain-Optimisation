@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { ExistingComparison, PlanScope } from "@/lib/combined";
 import type { SolveSummary } from "@/lib/scenarios";
 import type { Assignment } from "@/lib/types";
 
@@ -35,7 +36,7 @@ export function ResultTable({ result }: { result: SolveSummary }) {
     <table className="data">
       <tbody>
         <tr><th>Solver status</th><td>{result.status} (HiGHS branch-and-bound, 0.1% optimality gap, solved in {result.solveSeconds.toFixed(1)} s)</td></tr>
-        <tr><th>Planning horizon</th><td>{result.horizonDays} days (shortest horizon in which all 9,215 orders fit the warehouse capacities)</td></tr>
+        <tr><th>Planning horizon</th><td>{result.horizonDays} {result.horizonDays === 1 ? "day" : "days"} (shortest horizon in which all {num(result.plantLoads.reduce((sum, row) => sum + row.orders, 0))} orders fit the warehouse capacities)</td></tr>
         <tr><th>Total logistics cost</th><td>{money(result.totalCost)}</td></tr>
         <tr><th>Warehouse cost</th><td>{money(result.warehouseCost)}</td></tr>
         <tr><th>Transportation cost</th><td>{money(result.freightCost)}</td></tr>
@@ -144,6 +145,42 @@ export function AssignmentTable({ assignments, table }: { assignments: Assignmen
       </div>
       <Caption>{table}: Order-level routing plan chosen by the solver</Caption>
     </>
+  );
+}
+
+const scopes: { id: PlanScope; label: string }[] = [
+  { id: "new", label: "New orders only (empty network, full warehouse capacity)" },
+  { id: "combined", label: "Together with the existing dataset orders (re-solve all orders)" },
+];
+
+/** Radio choice between planning new orders alone or re-planning them with the dataset orders. */
+export function ScopeChoice({ name, value, onChange }: { name: string; value: PlanScope; onChange: (scope: PlanScope) => void }) {
+  return (
+    <div className="controls" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+      {scopes.map((item) => (
+        <label key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, color: "#222", fontSize: 14 }}>
+          <input type="radio" name={name} checked={value === item.id} onChange={() => onChange(item.id)} style={{ width: "auto" }} />
+          {item.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+/** Rows comparing the combined plan with the Problem 1 plan of the dataset orders. */
+export function ComparisonTable({ comparison, added }: { comparison: ExistingComparison; added: string }) {
+  return (
+    <table className="data" style={{ maxWidth: 620 }}>
+      <tbody>
+        <tr><th>Existing orders re-planned</th><td>{num(comparison.existingOrders)}</td></tr>
+        <tr><th>Cost of existing plan</th><td>{money(comparison.baselineCost)}</td></tr>
+        <tr><th>Cost with {added}</th><td>{money(comparison.combinedCost)}</td></tr>
+        <tr><th>Added cost</th><td><b>{money(comparison.addedCost)}</b></td></tr>
+        <tr><th>Cost of the new routes alone</th><td>{money(comparison.newOrdersCost)}</td></tr>
+        <tr><th>Planning horizon</th><td>{comparison.baselineHorizon} → {comparison.combinedHorizon} days</td></tr>
+        <tr><th>Existing orders re-routed</th><td>{num(comparison.existingRerouted)} ({num(comparison.existingPlantChanged)} to another warehouse)</td></tr>
+      </tbody>
+    </table>
   );
 }
 

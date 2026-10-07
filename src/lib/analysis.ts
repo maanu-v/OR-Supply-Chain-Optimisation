@@ -1,6 +1,5 @@
 import { buildFeasibleRoutes, eligiblePlantsByOrder, type RouteGeneration } from "@/lib/routes";
 import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
-import { planRoute, type PlannerInput } from "@/lib/planner";
 import { loadSourceData } from "@/lib/workbook";
 import { baseFactors, defaultGoal, findScenario, type CustomSensitivityInput, type CustomSensitivityResult, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
 import type { Assignment, Route, SourceData, Warehouse } from "@/lib/types";
@@ -37,18 +36,28 @@ export interface DashboardAnalysis {
   };
 }
 
-let cachedData: SourceData | undefined;
-let cachedAnalysis: DashboardAnalysis | undefined;
-let cachedRoutes: RouteGeneration | undefined;
+// Next bundles the page and the API routes separately, so plain module-level variables would
+// hold two copies of the workbook, routes and solved plans. Keeping them on globalThis means
+// every bundle in the process shares one copy (the same pattern as the Prisma client in db.ts).
+interface SharedStore {
+  data?: SourceData;
+  analysis?: DashboardAnalysis;
+  routes?: RouteGeneration;
+  solveCache: Map<string, Promise<SolveResponse>>;
+}
+declare global {
+  var __orStore: SharedStore | undefined;
+}
+const store: SharedStore = (globalThis.__orStore ??= { solveCache: new Map() });
 
-function sourceData() {
-  cachedData ??= loadSourceData();
-  return cachedData;
+export function sourceData() {
+  store.data ??= loadSourceData();
+  return store.data;
 }
 
-function baseRoutes() {
-  cachedRoutes ??= buildFeasibleRoutes(sourceData());
-  return cachedRoutes;
+export function baseRoutes() {
+  store.routes ??= buildFeasibleRoutes(sourceData());
+  return store.routes;
 }
 
 /** Scales daily capacity of every plant, or only of `plants` when a non-empty list is given. */
@@ -63,7 +72,7 @@ function countBy<T>(items: T[], key: (item: T) => string) {
 }
 
 export function getDashboardAnalysis(): DashboardAnalysis {
-  if (cachedAnalysis) return cachedAnalysis;
+  if (store.analysis) return store.analysis;
   const data = sourceData();
   const generated = baseRoutes();
   const eligible = eligiblePlantsByOrder(generated.routesByOrder);
@@ -147,7 +156,7 @@ export function getDashboardAnalysis(): DashboardAnalysis {
   const customers = new Set(data.orders.map((order) => order.customer)).size;
   const products = new Set(data.orders.map((order) => order.productId)).size;
 
-  cachedAnalysis = {
+  store.analysis = {
     source: {
       orders: data.orders.length,
       warehouses: data.warehouses.length,
@@ -209,12 +218,9 @@ export function getDashboardAnalysis(): DashboardAnalysis {
       })(),
     },
   };
-  return cachedAnalysis;
+  return store.analysis;
 }
 
-export function planOrder(input: PlannerInput) {
-  return planRoute(sourceData(), input);
-}
 
 // ---------------------------------------------------------------------------
 // Solving
@@ -253,7 +259,7 @@ function scenarioRoutes(factors: Factors) {
   return { ...base, routesByOrder };
 }
 
-function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDays: number, plantLoads: Record<string, number>) {
+export function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDays: number, plantLoads: Record<string, number>) {
   const controllable = assignments.filter((assignment) => assignment.transitDays !== null);
   const warehouseCost = assignments.reduce((sum, assignment) => sum + assignment.warehouseCost, 0);
   const freightCost = assignments.reduce((sum, assignment) => sum + assignment.freightCost, 0);
@@ -276,19 +282,24 @@ function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDa
   };
 }
 
-const solveCache = new Map<string, Promise<SolveResponse>>();
+const solveCache = store.solveCache;
+// Each cached plan holds ~9k assignments (several MB); a small LRU keeps the server inside a
+// 512 MB hosting limit while still reusing the baselines that every sensitivity run compares against.
+const solveCacheLimit = 12;
 
 export function solveScenario(request: SolveRequest): Promise<SolveResponse> {
   const normalised: SolveRequest = request.problem === "cost-time" ? { ...request, goal: request.goal ?? defaultGoal } : { ...request, goal: undefined };
   const key = JSON.stringify(normalised);
   let pending = solveCache.get(key);
-  if (!pending) {
+  if (pending) {
+    // refresh recency
+    solveCache.delete(key);
+  } else {
     pending = runSolve(normalised);
     pending.catch(() => solveCache.delete(key));
-    solveCache.set(key, pending);
-    // Each cached plan holds ~9k assignments; keep only the most recent plans.
-    if (solveCache.size > 40) solveCache.delete(solveCache.keys().next().value!);
   }
+  solveCache.set(key, pending);
+  if (solveCache.size > solveCacheLimit) solveCache.delete(solveCache.keys().next().value!);
   return pending;
 }
 
@@ -351,7 +362,7 @@ function summaryOf(solved: SolveResponse): SolveSummary {
 const routeText = (assignment: Assignment) => [assignment.plant, assignment.originPort, assignment.carrier ? `${assignment.carrier} ${assignment.mode} ${assignment.routeServiceLevel}` : "customer freight"].join(" → ");
 const sameRoute = (left: Assignment, right: Assignment) => routeText(left) === routeText(right);
 
-function countChanges(before: Assignment[], after: Assignment[]) {
+export function countChanges(before: Assignment[], after: Assignment[]) {
   if (before.length === 0 || after.length === 0) return { routesChanged: null, plantsChanged: null };
   const baseByOrder = new Map(before.map((assignment) => [assignment.orderId, assignment]));
   let routesChanged = 0;

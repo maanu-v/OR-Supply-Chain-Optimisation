@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Caption, money, num, pct, postJson } from "@/components/common";
 import { MultiSearchSelect } from "@/components/search-select";
-import type { CustomParameter, CustomSensitivityInput, CustomSensitivityResult, GoalInput, ProblemId, SolveSummary } from "@/lib/scenarios";
+import type { CustomParameter, CustomSensitivityInput, CustomSensitivityResult, GoalInput, ProblemId } from "@/lib/scenarios";
 
 const parameters: { id: CustomParameter; label: string; scope?: "plant" | "carrier"; problem2Only?: boolean }[] = [
   { id: "capacity", label: "Warehouse capacity", scope: "plant" },
@@ -24,29 +24,6 @@ function trend(before: number | null, after: number | null) {
   if (after > before + 1e-6) return "up";
   if (after < before - 1e-6) return "down";
   return "";
-}
-
-/** Plain-language summary of the custom run, written like our observations section. */
-function explain(result: CustomSensitivityResult) {
-  const { baseline, scenario } = result;
-  if (scenario.totalCost === null) return [`The re-solve is ${scenario.status}: ${scenario.message ?? "no plan was found."}`];
-  const lines: string[] = [];
-  const costDelta = (scenario.totalCost ?? 0) - (baseline.totalCost ?? 0);
-  lines.push(`Total logistics cost ${costDelta > 0 ? "rises" : costDelta < 0 ? "falls" : "does not change"}${costDelta !== 0 ? ` by ${money(Math.abs(costDelta))} (${change(baseline.totalCost, scenario.totalCost)})` : ""}.`);
-  if (result.routesChanged === 0) lines.push("The optimal routing plan stays exactly the same - this change is inside the range where the current plan remains optimal.");
-  else if (result.routesChanged !== null) lines.push(`${num(result.routesChanged)} orders get a different route, ${num(result.plantsChanged ?? 0)} of them move to another warehouse.`);
-  if (baseline.horizonDays !== scenario.horizonDays) lines.push(`The shortest feasible planning horizon changes from ${baseline.horizonDays} to ${scenario.horizonDays} days.`);
-  if (baseline.averageTransitDays !== null && scenario.averageTransitDays !== null && Math.abs(baseline.averageTransitDays - scenario.averageTransitDays) >= 0.005) {
-    lines.push(`Average transit time moves from ${baseline.averageTransitDays.toFixed(2)} to ${scenario.averageTransitDays.toFixed(2)} days.`);
-  }
-  const binding = (summary: SolveSummary) => summary.constraints.filter((row) => row.rhs > 0 && row.slack === 0).map((row) => row.plant);
-  const before = binding(baseline).join(", ") || "none";
-  const after = binding(scenario).join(", ") || "none";
-  if (before !== after) lines.push(`Binding capacity constraints change from ${before} to ${after}.`);
-  if (scenario.goal && (scenario.goal.costOver > 1 || scenario.goal.transitOver > 0.001)) {
-    lines.push(`Goals missed: cost over target by ${money(scenario.goal.costOver)}, transit over target by ${scenario.goal.transitOver.toFixed(2)} days.`);
-  }
-  return lines;
 }
 
 export function CustomSensitivity({ problem, goal, plants, carriers, firstTable }: { problem: ProblemId; goal?: GoalInput; plants: string[]; carriers: string[]; firstTable: number }) {
@@ -101,11 +78,6 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
 
   return (
     <>
-      <p>
-        Pick any parameter and change it by your own amount. The model is re-solved with the change and compared with the baseline plan, so
-        you can see exactly what moves: cost, horizon, which warehouses and carriers gain or lose orders, and which orders are re-routed.
-        Capacity, warehouse cost and freight can be changed for the whole network or for any set of warehouses / carriers you tick.
-      </p>
       <div className="controls">
         <label>
           Parameter
@@ -137,8 +109,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
       {result && (
         <>
           <h4 style={{ margin: "18px 0 6px", fontFamily: "Georgia, serif", fontWeight: "normal", fontSize: 17 }}>Result: {result.label}</h4>
-          <ul className="plain">{explain(result).map((line) => <li key={line}>{line}</li>)}</ul>
-
+          {result.scenario.totalCost === null && <p className="error">Solver status: {result.scenario.status}. {result.scenario.message}</p>}
           <table className="data">
             <thead><tr><th>Measure</th><th className="num">Baseline</th><th className="num">Custom scenario</th><th className="num">Change</th></tr></thead>
             <tbody>
