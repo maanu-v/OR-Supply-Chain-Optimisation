@@ -31,11 +31,6 @@ export function ProblemOneTab({ analysis }: { analysis: DashboardAnalysis }) {
       <p className="question">
         Which warehouse, origin port and carrier should be assigned to each order so that total logistics cost is minimised?
       </p>
-      <p>
-        Every order must be assigned exactly one warehouse, one origin port and one carrier. The assignment must respect capacity, product
-        availability, customer and connectivity restrictions. The historical dataset records what was done, not what was optimal, so we
-        convert the business problem into an Operations Research model.
-      </p>
       <p><b>OR technique:</b> Integer Programming (binary assignment model), solved with branch-and-bound using the HiGHS solver.</p>
 
       <h2>2. Model Formulation</h2>
@@ -103,10 +98,6 @@ export function ProblemOneTab({ analysis }: { analysis: DashboardAnalysis }) {
           <Caption>Table 1: Summary of the minimum-cost logistics plan</Caption>
           {result.totalCost !== null && (
             <>
-              <p>
-                Warehouse cost makes up {(((result.warehouseCost ?? 0) / result.totalCost) * 100).toFixed(1)}% of the total, so the choice of
-                warehouse drives the cost far more than the choice of carrier.
-              </p>
               <PlantLoadChart result={result} figure="Figure 1" />
               <figure>
                 <ChartBox height={240}>

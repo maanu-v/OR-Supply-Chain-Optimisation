@@ -21,7 +21,6 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
   const [result, setResult] = useState<SolveResponse>();
   const [solving, setSolving] = useState(false);
   const [error, setError] = useState<string>();
-  const transit = analysis.transitDays;
 
   async function solve() {
     setSolving(true);
@@ -50,21 +49,6 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
       <h2>1. Problem Statement</h2>
       <p className="question">
         How should the company balance transportation cost against delivery time when the two objectives point to different routes?
-      </p>
-      <table className="data">
-        <thead><tr><th>Route A</th><th>Route B</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>Lower freight cost, longer transit. The slowest lanes take up to {transit.at(-1)?.days} days.</td>
-            <td>Higher freight cost, shorter transit. The fastest lanes deliver in 0 to 3 days.</td>
-          </tr>
-        </tbody>
-      </table>
-      <Caption>Table 1: The two kinds of route that compete for each order</Caption>
-      <p>
-        Transit times in the freight data range from {transit[0]?.days} to {transit.at(-1)?.days} days, so the choice is real and measurable.
-        A single cost objective (Problem 1) does not care about delivery time at all, which is not acceptable to customers. Goal programming lets
-        the user set a target cost and a target delivery time and minimise the deviation from them.
       </p>
       <p><b>OR technique:</b> Weighted Goal Programming (multi-criteria decision making), on top of the same feasible routes and capacity constraints as Problem 1.</p>
 
@@ -95,7 +79,6 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
       </p>
 
       <h2>3. Results</h2>
-      <p>Choose the targets and priorities, then solve. The default is: cost may be at most 5% above the Problem 1 optimum, and average transit should be 1 day.</p>
       <div className="controls">
         {fields.map((field) => (
           <label key={field.key}>
@@ -112,7 +95,7 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
       {result && (
         <>
           <ResultTable result={result} />
-          <Caption>Table 2: Summary of the goal programming plan</Caption>
+          <Caption>Table 1: Summary of the goal programming plan</Caption>
           {result.goal && (
             <>
               <table className="data">
@@ -138,7 +121,7 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
                   </tr>
                 </tbody>
               </table>
-              <Caption>Table 3: Goal attainment</Caption>
+              <Caption>Table 2: Goal attainment</Caption>
             </>
           )}
           {compare.length > 0 && (
@@ -148,7 +131,7 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
                 <thead><tr><th>Measure</th><th className="num">Problem 1 (min cost)</th><th className="num">Problem 2 (goal programme)</th><th className="num">Change</th></tr></thead>
                 <tbody>{compare.map((row) => <tr key={row.name}><td>{row.name}</td><td className="num">{row.p1}</td><td className="num">{row.p2}</td><td className="num">{row.change}</td></tr>)}</tbody>
               </table>
-              <Caption>Table 4: Cost paid for faster delivery</Caption>
+              <Caption>Table 3: Cost paid for faster delivery</Caption>
             </>
           )}
           {result.totalCost !== null && (
@@ -181,7 +164,7 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
               </div>
               <PlantLoadChart result={result} figure="Figure 3" />
               <h3>Order-level plan</h3>
-              <AssignmentTable assignments={result.assignments} table="Table 5" />
+              <AssignmentTable assignments={result.assignments} table="Table 4" />
             </>
           )}
         </>
@@ -193,11 +176,10 @@ export function ProblemTwoTab({ analysis }: { analysis: DashboardAnalysis }) {
         Uses the goal settings of the last solve (cost target +{goal.costBudgetPercent}%, transit target {goal.transitTarget} days, weights{" "}
         {goal.costWeight} : {goal.timeWeight}). {num(targetScenarios.length)} extra solves vary the transit target.
       </p>
-      <Sensitivity key={`preset-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} extra={targetScenarios} section="4" firstFigure={4} firstTable={6} />
+      <Sensitivity key={`preset-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} extra={targetScenarios} section="4" firstFigure={4} firstTable={5} />
 
       <h2>5. Custom Sensitivity Analysis</h2>
-      <p>Uses the same goal settings as the last Problem 2 solve; the delivery-time target and cost budget can also be changed here.</p>
-      <CustomSensitivity key={`custom-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} plants={analysis.warehouses.map((row) => row.plant)} carriers={analysis.rateCarriers.map((row) => row.carrier)} firstTable={9} />
+      <CustomSensitivity key={`custom-${JSON.stringify(goal)}`} problem="cost-time" goal={goal} plants={analysis.warehouses.map((row) => row.plant)} carriers={analysis.rateCarriers.map((row) => row.carrier)} firstTable={8} />
     </>
   );
 }
