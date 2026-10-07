@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BulkTab } from "@/components/bulk-tab";
 import { DatasetTab } from "@/components/dataset-tab";
 import { PlannerTab } from "@/components/planner-tab";
 import { ProblemOneTab } from "@/components/problem-one-tab";
@@ -12,6 +13,7 @@ const tabs = [
   { id: "problem-1", label: "Problem 1: Minimum-Cost Assignment" },
   { id: "problem-2", label: "Problem 2: Cost vs Delivery Time" },
   { id: "planner", label: "Route Planner" },
+  { id: "bulk", label: "Bulk Upload" },
 ] as const;
 
 type TabId = (typeof tabs)[number]["id"];
@@ -137,6 +139,7 @@ export function Site({ analysis }: { analysis: DashboardAnalysis }) {
         <section ref={(element) => { panels.current["problem-1"] = element; }} hidden={tab !== "problem-1"}><ProblemOneTab analysis={analysis} /></section>
         <section ref={(element) => { panels.current["problem-2"] = element; }} hidden={tab !== "problem-2"}><ProblemTwoTab analysis={analysis} /></section>
         <section ref={(element) => { panels.current.planner = element; }} hidden={tab !== "planner"}><PlannerTab analysis={analysis} /></section>
+        <section ref={(element) => { panels.current.bulk = element; }} hidden={tab !== "bulk"}><BulkTab /></section>
       </main>
 
       <footer>
