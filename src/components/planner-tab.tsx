@@ -119,13 +119,6 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
   return (
     <>
       <h2>1. Plan a Single Order</h2>
-      <p>
-        Enter the details of a customer order and choose what the company wants to optimise. The page builds every feasible route for this order
-        using the same rules as Problems 1 and 2 (product stock, VMI restrictions, warehouse-port links, carrier lanes and weight bands), prices
-        each route, and picks the best one for the chosen objective. With only one order the warehouse capacity constraint cannot bind, so the
-        feasible set is searched completely and the answer is exact.
-      </p>
-
       <div className="controls">
         <div className="field">
           Product ID
