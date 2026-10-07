@@ -35,7 +35,7 @@ export function ResultTable({ result }: { result: SolveSummary }) {
     <table className="data">
       <tbody>
         <tr><th>Solver status</th><td>{result.status} (HiGHS branch-and-bound, 0.1% optimality gap, solved in {result.solveSeconds.toFixed(1)} s)</td></tr>
-        <tr><th>Planning horizon</th><td>{result.horizonDays} days (shortest horizon in which all 9,215 orders fit the warehouse capacities)</td></tr>
+        <tr><th>Planning horizon</th><td>{result.horizonDays} {result.horizonDays === 1 ? "day" : "days"} (shortest horizon in which all {num(result.plantLoads.reduce((sum, row) => sum + row.orders, 0))} orders fit the warehouse capacities)</td></tr>
         <tr><th>Total logistics cost</th><td>{money(result.totalCost)}</td></tr>
         <tr><th>Warehouse cost</th><td>{money(result.warehouseCost)}</td></tr>
         <tr><th>Transportation cost</th><td>{money(result.freightCost)}</td></tr>

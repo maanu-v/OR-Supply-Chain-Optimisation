@@ -51,7 +51,7 @@ declare global {
 }
 const store: SharedStore = (globalThis.__orStore ??= { solveCache: new Map() });
 
-function sourceData() {
+export function sourceData() {
   store.data ??= loadSourceData();
   return store.data;
 }
@@ -263,7 +263,7 @@ function scenarioRoutes(factors: Factors) {
   return { ...base, routesByOrder };
 }
 
-function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDays: number, plantLoads: Record<string, number>) {
+export function summarise(assignments: Assignment[], warehouses: Warehouse[], horizonDays: number, plantLoads: Record<string, number>) {
   const controllable = assignments.filter((assignment) => assignment.transitDays !== null);
   const warehouseCost = assignments.reduce((sum, assignment) => sum + assignment.warehouseCost, 0);
   const freightCost = assignments.reduce((sum, assignment) => sum + assignment.freightCost, 0);
