@@ -16,7 +16,7 @@
 - `src/lib/analysis.ts`: dataset statistics, scenario solving (cached in memory) and sensitivity comparison.
 - `src/lib/scenarios.ts`: shared scenario/goal definitions and result types (safe for the browser).
 - `src/app/api/solve`, `src/app/api/sensitivity`: solve one plan / one sensitivity scenario.
-- `src/components/site.tsx`: project website with four tabs (Dataset Analysis, Problem 1, Problem 2, Route Planner).
+- `src/components/site.tsx`: project website with five tabs (Dataset Analysis, Problem 1, Problem 2, Route Planner, Bulk Upload).
 - `prisma/schema.prisma`: immutable import, scenario, and solve-result audit records.
 
 ## Run
@@ -49,6 +49,7 @@ Caches (workbook, feasible routes, the 12 most recent solved plans) are kept on 
 - **Problem 1**: IP formulation, solve button, result summary, warehouse load, carrier mix, searchable order-level plan, sensitivity analysis.
 - **Problem 2**: goal-programming formulation, editable targets/weights, goal attainment, comparison with Problem 1, sensitivity analysis and cost vs transit trade-off curve.
 - **Route Planner**: user enters product, customer, service level, quantity and weight and picks an objective (min cost, min transit, or cost + λ·days). `src/lib/planner.ts` enumerates every feasible route for that single order (capacity cannot bind for one order, so this is exact), ranks them, explains which warehouses were filtered out and why, and draws the feasible network with the optimal path highlighted (`/api/plan`).
+- **Bulk Upload**: user uploads a CSV or Excel file of orders (`Product ID`, `Customer`, `Service Level`, `Unit quantity`, `Weight`, optional `Order ID`). `src/lib/bulk.ts` validates the rows, builds feasible routes with the same filters, and solves the Problem 1 model for the batch against full warehouse capacity over its shortest feasible horizon (`POST /api/bulk`). The tab shows the batch summary, warehouse loads, a downloadable order-level plan and the rejected rows with the reason for each. `GET /api/bulk` serves `data/sample-bulk-orders.csv`, which `npx tsx scripts/sample-orders.ts` regenerates.
 - **Custom sensitivity** (section 5 of both problem tabs): pick a parameter (capacity, warehouse cost, freight, demand; Problem 2 also transit target and cost budget), a % change or new value, and optionally one or more warehouses or carriers. `/api/sensitivity` with a `custom` body re-solves and returns baseline vs scenario measures, warehouse/carrier load changes and example re-routed orders.
 - **Navigation**: the tab bar and a section bar stay pinned at the top. The section bar is built from each tab's numbered `h2` headings, jumps to them, and highlights the section being read.
 
