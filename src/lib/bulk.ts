@@ -1,20 +1,10 @@
 import * as XLSX from "xlsx";
-import { sourceData, summarise } from "@/lib/analysis";
-import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
-import { buildFeasibleRoutes, eligiblePlantsByOrder } from "@/lib/routes";
+import { sourceData } from "@/lib/analysis";
+import { bulkColumns, bulkOrderLimit } from "@/lib/bulk-format";
+import { solveNewOrders, type ExistingComparison, type PlanScope } from "@/lib/combined";
+import { buildFeasibleRoutes } from "@/lib/routes";
 import type { SolveSummary } from "@/lib/scenarios";
 import type { Assignment, Order, ServiceLevel, SourceData } from "@/lib/types";
-
-export const bulkColumns = [
-  { name: "Order ID", required: false, example: "B-0001", note: "generated from the row number when blank" },
-  { name: "Product ID", required: true, example: "1700106", note: "must be stocked in ProductsPerPlant" },
-  { name: "Customer", required: true, example: "V55555_53", note: "checked against VmiCustomers" },
-  { name: "Service Level", required: true, example: "DTP", note: "DTD, DTP or CRF" },
-  { name: "Unit quantity", required: true, example: "808", note: "positive number" },
-  { name: "Weight", required: true, example: "14.3", note: "kg, positive number" },
-] as const;
-
-export const bulkOrderLimit = 10000;
 
 export interface BulkRejection {
   /** Spreadsheet row number (the header is row 1). */
@@ -32,6 +22,9 @@ export interface BulkAssignment extends Assignment {
 }
 
 export interface BulkResult extends SolveSummary {
+  scope: PlanScope;
+  /** Set in combined scope: effect of the batch on the plan of the dataset orders. */
+  comparison?: ExistingComparison;
   rowsRead: number;
   planned: number;
   rejected: BulkRejection[];
@@ -107,49 +100,40 @@ function infeasibleReason(data: SourceData, order: Order) {
 }
 
 /**
- * Minimum-cost plan for an uploaded batch. The batch is routed with the same feasibility filters
- * and integer programme as Problem 1, against the full warehouse capacities, over the shortest
- * horizon in which the batch fits.
+ * Minimum-cost plan for an uploaded batch, using the same feasibility filters and integer
+ * programme as Problem 1. In "new" scope the batch is planned on its own against the full
+ * warehouse capacities; in "combined" scope it is appended to the dataset orders and everything
+ * is re-planned together.
  */
-export async function planBulkOrders(file: Buffer): Promise<BulkResult> {
-  const started = Date.now();
+export async function planBulkOrders(file: Buffer, scope: PlanScope): Promise<BulkResult> {
   const data = sourceData();
   const parsed = parseBulkOrders(file, data.orders[0]?.destinationPort ?? "");
-  const generated = buildFeasibleRoutes({ ...data, orders: parsed.orders });
   const rejected = [...parsed.rejected];
-  const orderById = new Map(parsed.orders.map((order) => [order.id, order]));
+  let orders = parsed.orders;
+  if (scope === "combined") {
+    const existing = new Set(data.orders.map((order) => order.id));
+    orders = orders.filter((order) => {
+      if (!existing.has(order.id)) return true;
+      rejected.push({ row: parsed.rowByOrder.get(order.id) ?? 0, orderId: order.id, reason: "Order ID already exists in OrderList" });
+      return false;
+    });
+  }
+  const generated = buildFeasibleRoutes({ ...data, orders });
+  const orderById = new Map(orders.map((order) => [order.id, order]));
   for (const orderId of generated.diagnostics.zeroCandidateOrders) {
     rejected.push({ row: parsed.rowByOrder.get(orderId) ?? 0, orderId, reason: infeasibleReason(data, orderById.get(orderId)!) });
     generated.routesByOrder.delete(orderId);
   }
   rejected.sort((left, right) => left.row - right.row);
 
-  const base = { rowsRead: parsed.rowsRead, planned: 0, rejected, assignments: [] };
-  const empty = { ...base, horizonDays: null, totalCost: null, warehouseCost: null, freightCost: null, averageTransitDays: null, modeSplit: [], carrierSplit: [], plantLoads: [], constraints: [] };
-  const seconds = () => (Date.now() - started) / 1000;
+  const base = { scope, rowsRead: parsed.rowsRead, rejected };
   if (generated.routesByOrder.size === 0) {
-    return { ...empty, status: "infeasible", solveSeconds: seconds(), message: "None of the uploaded rows has a feasible route." };
+    return { ...base, planned: 0, assignments: [], status: "infeasible", solveSeconds: 0, message: "None of the uploaded rows has a feasible route.", horizonDays: null, totalCost: null, warehouseCost: null, freightCost: null, averageTransitDays: null, modeSplit: [], carrierSplit: [], plantLoads: [], constraints: [] };
   }
-  const horizonDays = findMinimumHorizon(eligiblePlantsByOrder(generated.routesByOrder), data.warehouses, 30);
-  if (!horizonDays) {
-    return { ...empty, status: "infeasible", solveSeconds: seconds(), message: "Capacity cannot serve every uploaded order within 30 days." };
-  }
-  const solved = await solveAssignment(generated.routesByOrder, data.warehouses, horizonDays);
-  if (solved.status === "infeasible" || solved.status === "error") {
-    return { ...empty, status: solved.status, horizonDays, solveSeconds: seconds(), message: solved.message };
-  }
-
-  const assignments = solved.assignments.map((assignment) => {
+  const { newAssignments, ...plan } = await solveNewOrders(generated.routesByOrder, scope);
+  const assignments = newAssignments.map((assignment) => {
     const order = orderById.get(assignment.orderId)!;
     return { ...assignment, productId: order.productId, customer: order.customer, serviceLevel: order.serviceLevel, quantity: order.quantity, weight: order.weight };
   });
-  return {
-    ...base,
-    planned: assignments.length,
-    assignments,
-    status: solved.status,
-    horizonDays,
-    solveSeconds: seconds(),
-    ...summarise(assignments, data.warehouses, horizonDays, solved.plantLoads),
-  };
+  return { ...base, ...plan, planned: assignments.length, assignments };
 }

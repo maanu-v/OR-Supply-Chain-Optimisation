@@ -1,6 +1,5 @@
 import { buildFeasibleRoutes, eligiblePlantsByOrder, type RouteGeneration } from "@/lib/routes";
 import { findMinimumHorizon, solveAssignment } from "@/lib/optimizer";
-import { planRoute, type PlannerInput } from "@/lib/planner";
 import { loadSourceData } from "@/lib/workbook";
 import { baseFactors, defaultGoal, findScenario, type CustomSensitivityInput, type CustomSensitivityResult, type Factors, type GoalInput, type ProblemId, type SensitivityRow, type SolveSummary } from "@/lib/scenarios";
 import type { Assignment, Route, SourceData, Warehouse } from "@/lib/types";
@@ -56,7 +55,7 @@ export function sourceData() {
   return store.data;
 }
 
-function baseRoutes() {
+export function baseRoutes() {
   store.routes ??= buildFeasibleRoutes(sourceData());
   return store.routes;
 }
@@ -222,9 +221,6 @@ export function getDashboardAnalysis(): DashboardAnalysis {
   return store.analysis;
 }
 
-export function planOrder(input: PlannerInput) {
-  return planRoute(sourceData(), input);
-}
 
 // ---------------------------------------------------------------------------
 // Solving
@@ -366,7 +362,7 @@ function summaryOf(solved: SolveResponse): SolveSummary {
 const routeText = (assignment: Assignment) => [assignment.plant, assignment.originPort, assignment.carrier ? `${assignment.carrier} ${assignment.mode} ${assignment.routeServiceLevel}` : "customer freight"].join(" → ");
 const sameRoute = (left: Assignment, right: Assignment) => routeText(left) === routeText(right);
 
-function countChanges(before: Assignment[], after: Assignment[]) {
+export function countChanges(before: Assignment[], after: Assignment[]) {
   if (before.length === 0 || after.length === 0) return { routesChanged: null, plantsChanged: null };
   const baseByOrder = new Map(before.map((assignment) => [assignment.orderId, assignment]));
   let routesChanged = 0;

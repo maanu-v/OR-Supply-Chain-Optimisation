@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { AssignmentTable, Caption, num, PlantLoadChart, ResultTable } from "@/components/common";
-import { bulkColumns, type BulkResult } from "@/lib/bulk";
+import type { BulkResult } from "@/lib/bulk";
+import { bulkColumns } from "@/lib/bulk-format";
 
 const planColumns = ["Order ID", "Product ID", "Customer", "Service Level", "Unit quantity", "Weight", "Warehouse", "Origin port", "Carrier", "Mode", "Transit days", "Warehouse cost", "Freight cost", "Total cost"];
 

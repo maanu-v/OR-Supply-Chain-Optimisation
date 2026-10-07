@@ -17,10 +17,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const file = (await request.formData()).get("file");
+    const form = await request.formData();
+    const file = form.get("file");
+    const scope = form.get("scope") === "combined" ? "combined" : "new";
     if (!(file instanceof File) || file.size === 0) throw new Error("Choose a CSV or Excel file to upload.");
     if (file.size > maxBytes) throw new Error("The file is larger than 5 MB.");
-    return NextResponse.json(await planBulkOrders(Buffer.from(await file.arrayBuffer())));
+    return NextResponse.json(await planBulkOrders(Buffer.from(await file.arrayBuffer()), scope));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to plan the uploaded orders.";
     return NextResponse.json({ message }, { status: 400 });

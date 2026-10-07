@@ -1,4 +1,5 @@
 import { buildFeasibleRoutes } from "@/lib/routes";
+import type { ExistingComparison } from "@/lib/combined";
 import type { Order, Route, ServiceLevel, SourceData } from "@/lib/types";
 
 export type PlannerObjective = "cost" | "time" | "weighted";
@@ -15,6 +16,7 @@ export interface PlannerInput {
 }
 
 export interface PlannerRoute {
+  routeId: string;
   plant: string;
   originPort: string;
   carrier: string | null;
@@ -31,6 +33,8 @@ export interface PlannerResult {
   destinationPort: string;
   /** Feasible routes ranked by the chosen objective; the first one is optimal. */
   routes: PlannerRoute[];
+  /** Set when the order is planned together with the dataset orders. */
+  combined?: ExistingComparison & { routeId: string | null };
   /** How the 19 warehouses were filtered for this order. */
   warehouses: { plant: string; status: "feasible" | "no stock" | "VMI restricted" | "no port" | "no freight lane" }[];
 }
@@ -47,12 +51,15 @@ function score(route: Route, input: PlannerInput) {
  * never bind (every plant handles at least one order a day), so the assignment model reduces
  * to choosing the best element of the feasible set; we enumerate it exactly.
  */
-export function planRoute(data: SourceData, input: PlannerInput): PlannerResult {
-  const destinationPort = data.orders[0]?.destinationPort ?? "";
+/** Order ID given to the planner's order; it cannot clash with the numeric IDs of OrderList. */
+export const plannerOrderId = "planner";
+
+/** Every feasible route for the entered order, using the same filters as Problems 1 and 2. */
+export function plannerRoutes(data: SourceData, input: PlannerInput) {
   const order: Order = {
-    id: "planner",
+    id: plannerOrderId,
     orderDate: "",
-    destinationPort,
+    destinationPort: data.orders[0]?.destinationPort ?? "",
     historicalOriginPort: "",
     historicalCarrier: "",
     historicalPlant: "",
@@ -63,12 +70,17 @@ export function planRoute(data: SourceData, input: PlannerInput): PlannerResult 
     weight: input.weight,
     serviceLevel: input.serviceLevel,
   };
-  const routes = buildFeasibleRoutes({ ...data, orders: [order] }).routesByOrder.get("planner") ?? [];
-  const ranked = routes
+  return buildFeasibleRoutes({ ...data, orders: [order] }).routesByOrder.get(plannerOrderId) ?? [];
+}
+
+export function planRoute(data: SourceData, input: PlannerInput): PlannerResult {
+  const destinationPort = data.orders[0]?.destinationPort ?? "";
+  const ranked = plannerRoutes(data, input)
     .map((route) => ({ route, score: score(route, input) }))
     // ties on the objective are broken by cost, then by transit time
     .sort((left, right) => left.score - right.score || left.route.totalCost - right.route.totalCost || (left.route.transitDays ?? 0) - (right.route.transitDays ?? 0))
     .map(({ route, score: value }) => ({
+      routeId: route.id,
       plant: route.plant,
       originPort: route.originPort,
       carrier: route.carrier,
