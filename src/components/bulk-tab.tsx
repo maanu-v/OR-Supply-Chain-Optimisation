@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AssignmentTable, Caption, num, PlantLoadChart, ResultTable } from "@/components/common";
+import { AssignmentTable, Caption, ComparisonTable, num, PlantLoadChart, ResultTable, ScopeChoice } from "@/components/common";
 import type { BulkResult } from "@/lib/bulk";
 import { bulkColumns } from "@/lib/bulk-format";
+import type { PlanScope } from "@/lib/combined";
 
 const planColumns = ["Order ID", "Product ID", "Customer", "Service Level", "Unit quantity", "Weight", "Warehouse", "Origin port", "Carrier", "Mode", "Transit days", "Warehouse cost", "Freight cost", "Total cost"];
 
@@ -17,6 +18,7 @@ function planCsv(result: BulkResult) {
 
 export function BulkTab() {
   const [file, setFile] = useState<File>();
+  const [scope, setScope] = useState<PlanScope>("new");
   const [result, setResult] = useState<BulkResult>();
   const [solvedFile, setSolvedFile] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -29,6 +31,7 @@ export function BulkTab() {
     try {
       const body = new FormData();
       body.append("file", file);
+      body.append("scope", scope);
       const response = await fetch("/api/bulk", { method: "POST", body });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Upload failed");
@@ -51,6 +54,9 @@ export function BulkTab() {
     URL.revokeObjectURL(link.href);
   }
 
+  // tables after the batch summary shift by one when the comparison table is shown
+  const first = result?.comparison ? 4 : 3;
+
   return (
     <>
       <h2>1. Upload Orders</h2>
@@ -71,6 +77,8 @@ export function BulkTab() {
         <button className="run" disabled={busy || !file} onClick={plan}>{busy ? "Solving..." : "Plan uploaded orders"}</button>
         <a className="run secondary" href="/api/bulk" download>Download sample file</a>
       </div>
+      <h3>Planning scope</h3>
+      <ScopeChoice name="bulk-scope" value={scope} onChange={setScope} />
       {error && <p className="error">{error}</p>}
 
       {result && (
@@ -85,15 +93,21 @@ export function BulkTab() {
             </tbody>
           </table>
           <Caption>Table 2: Rows of the uploaded file</Caption>
+          {result.comparison && (
+            <>
+              <ComparisonTable comparison={result.comparison} added="the uploaded batch" />
+              <Caption>Table 3: Effect of the uploaded batch on the plan of the existing orders</Caption>
+            </>
+          )}
           <ResultTable result={result} />
           {result.totalCost !== null && (
             <>
-              <Caption>Table 3: Minimum-cost plan for the uploaded batch (Problem 1 model, full warehouse capacity)</Caption>
+              <Caption>Table {first}: {result.comparison ? "Minimum-cost plan for the existing orders and the uploaded batch together (Problem 1 model)" : "Minimum-cost plan for the uploaded batch (Problem 1 model, full warehouse capacity)"}</Caption>
               <PlantLoadChart result={result} figure="Figure 1" />
 
-              <h2>3. Order-Level Plan</h2>
+              <h2>3. Order-Level Plan of the Uploaded Orders</h2>
               <p><button className="run secondary" onClick={download}>Download plan (CSV)</button></p>
-              <AssignmentTable assignments={result.assignments} table="Table 4" />
+              <AssignmentTable assignments={result.assignments} table={`Table ${first + 1}`} />
             </>
           )}
 
@@ -108,7 +122,7 @@ export function BulkTab() {
                   </tbody>
                 </table>
               </div>
-              <Caption>Table {result.totalCost !== null ? 5 : 3}: Rows left out of the plan and the filter that removed them</Caption>
+              <Caption>Table {result.totalCost !== null ? first + 2 : first}: Rows left out of the plan and the filter that removed them</Caption>
             </>
           )}
         </>
