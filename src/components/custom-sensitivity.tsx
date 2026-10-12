@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Caption, money, num, pct, postJson } from "@/components/common";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import { MultiSearchSelect } from "@/components/search-select";
 import type { CustomParameter, CustomSensitivityInput, CustomSensitivityResult, GoalInput, ProblemId } from "@/lib/scenarios";
 
@@ -12,6 +13,16 @@ const parameters: { id: CustomParameter; label: string; scope?: "plant" | "carri
   { id: "demand", label: "Demand volume (quantity and weight)" },
   { id: "transitTarget", label: "Delivery-time target (days)", problem2Only: true },
   { id: "costBudget", label: "Cost budget (% over Problem 1)", problem2Only: true },
+];
+
+type ExampleRow = CustomSensitivityResult["examples"][number];
+
+const exampleColumns: DataColumn<ExampleRow>[] = [
+  { id: "orderId", header: "Order ID", value: (row) => row.orderId },
+  { id: "before", header: "Baseline route", value: (row) => row.before },
+  { id: "after", header: "New route", solver: true, value: (row) => row.after },
+  { id: "costBefore", header: "Cost before", numeric: true, value: (row) => row.costBefore, cell: (row) => num(row.costBefore, 2) },
+  { id: "costAfter", header: "Cost after", numeric: true, value: (row) => row.costAfter, cell: (row) => num(row.costAfter, 2) },
 ];
 
 function change(before: number | null, after: number | null) {
@@ -169,22 +180,7 @@ export function CustomSensitivity({ problem, goal, plants, carriers, firstTable 
 
           {result.examples.length > 0 && (
             <>
-              <div className="scroll">
-                <table className="data">
-                  <thead><tr><th>Order ID</th><th>Baseline route</th><th className="solver">New route</th><th className="num">Cost before</th><th className="num">Cost after</th></tr></thead>
-                  <tbody>
-                    {result.examples.map((row) => (
-                      <tr key={row.orderId}>
-                        <td>{row.orderId}</td>
-                        <td>{row.before}</td>
-                        <td className="solver">{row.after}</td>
-                        <td className="num">{num(row.costBefore, 2)}</td>
-                        <td className="num">{num(row.costAfter, 2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable columns={exampleColumns} rows={result.examples} rowKey={(row) => row.orderId} unit="orders" searchPlaceholder="Search order ID or route..." />
               <Caption>Table {firstTable + 3}: Examples of re-routed orders (first {result.examples.length} of {num(result.routesChanged ?? 0)}; route = warehouse → port → carrier)</Caption>
             </>
           )}

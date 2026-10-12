@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, Tooltip, XAxis, YAxis } from "recharts";
 import { axisStyle, Caption, ChartBox, colours, money, num, pct, postJson, SlackTable } from "@/components/common";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import { parameterScenarios, type GoalInput, type ProblemId, type SensitivityRow, type SensitivityScenario } from "@/lib/scenarios";
 
 interface Props {
@@ -18,6 +19,28 @@ interface Props {
 function costChange(row: SensitivityRow, baseline?: SensitivityRow) {
   if (!baseline?.totalCost || row.totalCost === null) return null;
   return ((row.totalCost - baseline.totalCost) / baseline.totalCost) * 100;
+}
+
+type ParameterScenario = (typeof parameterScenarios)[number];
+
+function parameterColumns(rows: Record<string, SensitivityRow>, baseline?: SensitivityRow): DataColumn<ParameterScenario>[] {
+  const changeOf = (scenario: ParameterScenario) => (scenario.id === "baseline" ? null : costChange(rows[scenario.id], baseline));
+  return [
+    { id: "group", header: "Parameter", value: (scenario) => scenario.group },
+    { id: "label", header: "Scenario", value: (scenario) => scenario.label },
+    { id: "horizon", header: "Horizon", numeric: true, value: (scenario) => rows[scenario.id].horizonDays, cell: (scenario) => `${rows[scenario.id].horizonDays ?? "-"} d` },
+    { id: "totalCost", header: "Total cost", numeric: true, value: (scenario) => rows[scenario.id].totalCost, cell: (scenario) => (rows[scenario.id].totalCost === null ? rows[scenario.id].status : money(rows[scenario.id].totalCost)) },
+    {
+      id: "change", header: "Change", numeric: true, value: changeOf,
+      cell: (scenario) => { const change = changeOf(scenario); return change === null ? "-" : pct(change); },
+      className: (scenario) => { const change = changeOf(scenario); return change !== null && change >= 0.005 ? "up" : change !== null && change <= -0.005 ? "down" : undefined; },
+    },
+    { id: "warehouseCost", header: "Warehouse cost", numeric: true, value: (scenario) => rows[scenario.id].warehouseCost, cell: (scenario) => money(rows[scenario.id].warehouseCost) },
+    { id: "freightCost", header: "Freight cost", numeric: true, value: (scenario) => rows[scenario.id].freightCost, cell: (scenario) => money(rows[scenario.id].freightCost) },
+    { id: "transit", header: "Avg transit", numeric: true, value: (scenario) => rows[scenario.id].averageTransitDays, cell: (scenario) => rows[scenario.id].averageTransitDays?.toFixed(2) ?? "-" },
+    { id: "routesChanged", header: "Orders re-routed", numeric: true, value: (scenario) => rows[scenario.id].routesChanged, cell: (scenario) => (rows[scenario.id].routesChanged === null ? "-" : num(rows[scenario.id].routesChanged!)) },
+    { id: "plantsChanged", header: "Warehouse changed", numeric: true, value: (scenario) => rows[scenario.id].plantsChanged, cell: (scenario) => (rows[scenario.id].plantsChanged === null ? "-" : num(rows[scenario.id].plantsChanged!)) },
+  ];
 }
 
 export function Sensitivity({ problem, goal, extra = [], section, firstFigure, firstTable }: Props) {
@@ -68,37 +91,13 @@ export function Sensitivity({ problem, goal, extra = [], section, firstFigure, f
       {parameterRows.length > 0 && (
         <>
           <h3>{section}.1 Parameter perturbations</h3>
-          <div className="scroll">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Parameter</th><th>Scenario</th><th className="num">Horizon</th><th className="num">Total cost</th><th className="num">Change</th>
-                  <th className="num">Warehouse cost</th><th className="num">Freight cost</th><th className="num">Avg transit</th>
-                  <th className="num">Orders re-routed</th><th className="num">Warehouse changed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {parameterRows.map((scenario) => {
-                  const row = rows[scenario.id];
-                  const change = costChange(row, baseline);
-                  return (
-                    <tr key={scenario.id} className={scenario.id === "baseline" ? "base" : undefined}>
-                      <td>{scenario.group}</td>
-                      <td>{scenario.label}</td>
-                      <td className="num">{row.horizonDays ?? "-"} d</td>
-                      <td className="num">{row.totalCost === null ? row.status : money(row.totalCost)}</td>
-                      <td className={`num ${change !== null && change >= 0.005 ? "up" : change !== null && change <= -0.005 ? "down" : ""}`}>{change === null || scenario.id === "baseline" ? "-" : pct(change)}</td>
-                      <td className="num">{money(row.warehouseCost)}</td>
-                      <td className="num">{money(row.freightCost)}</td>
-                      <td className="num">{row.averageTransitDays?.toFixed(2) ?? "-"}</td>
-                      <td className="num">{row.routesChanged === null ? "-" : num(row.routesChanged)}</td>
-                      <td className="num">{row.plantsChanged === null ? "-" : num(row.plantsChanged)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={parameterColumns(rows, baseline)}
+            rows={parameterRows}
+            rowKey={(scenario) => scenario.id}
+            rowClass={(scenario) => (scenario.id === "baseline" ? "base" : undefined)}
+            unit="scenarios"
+          />
           <Caption>Table {firstTable}: Re-optimised plans under each parameter change (re-routed = warehouse, port, carrier or mode differs from the baseline plan)</Caption>
 
           {chartData.length > 0 && (

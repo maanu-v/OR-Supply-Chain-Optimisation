@@ -2,7 +2,29 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, Tooltip, XAxis, YAxis } from "recharts";
 import type { DashboardAnalysis } from "@/lib/analysis";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import { axisStyle, Caption, ChartBox, colours, num } from "@/components/common";
+
+type WarehouseRow = DashboardAnalysis["warehouses"][number];
+type CarrierRow = DashboardAnalysis["rateCarriers"][number];
+
+const warehouseColumns: DataColumn<WarehouseRow>[] = [
+  { id: "plant", header: "Plant", value: (row) => row.plant },
+  { id: "unitCost", header: "Cost / unit", numeric: true, value: (row) => row.unitCost, cell: (row) => row.unitCost.toFixed(2) },
+  { id: "capacity", header: "Capacity / day", numeric: true, value: (row) => row.dailyCapacity, cell: (row) => num(row.dailyCapacity) },
+  { id: "products", header: "Products stocked", numeric: true, value: (row) => row.products, cell: (row) => num(row.products) },
+  { id: "ports", header: "Origin ports", value: (row) => row.ports.join(", ") || "-" },
+  { id: "vmi", header: "VMI", value: (row) => (row.vmi ? "yes" : "no"), cell: (row) => (row.vmi ? "yes" : "") },
+  { id: "historical", header: "Historical orders", numeric: true, value: (row) => row.historicalOrders, cell: (row) => num(row.historicalOrders) },
+  { id: "single", header: "Orders only this plant can serve", numeric: true, value: (row) => row.singlePlantOrders, cell: (row) => num(row.singlePlantOrders) },
+];
+
+const carrierColumns: DataColumn<CarrierRow>[] = [
+  { id: "carrier", header: "Carrier", value: (row) => row.carrier },
+  { id: "air", header: "Air rate lines", numeric: true, value: (row) => row.air, cell: (row) => row.air || "-" },
+  { id: "ground", header: "Ground rate lines", numeric: true, value: (row) => row.ground, cell: (row) => row.ground || "-" },
+  { id: "transit", header: "Transit (days)", numeric: true, value: (row) => row.maxTransit, cell: (row) => (row.minTransit === row.maxTransit ? row.minTransit : `${row.minTransit}-${row.maxTransit}`) },
+];
 
 const constraints = [
   "Every order must be assigned to exactly one warehouse, origin port and carrier.",
@@ -144,40 +166,13 @@ export function DatasetTab({ analysis }: { analysis: DashboardAnalysis }) {
           <Caption>Figure 5: Storage cost per unit at each warehouse</Caption>
         </figure>
       </div>
-      <div className="scroll">
-        <table className="data">
-          <thead>
-            <tr><th>Plant</th><th className="num">Cost / unit</th><th className="num">Capacity / day</th><th className="num">Products stocked</th><th>Origin ports</th><th>VMI</th><th className="num">Historical orders</th><th className="num">Orders only this plant can serve</th></tr>
-          </thead>
-          <tbody>
-            {analysis.warehouses.map((row) => (
-              <tr key={row.plant}>
-                <td>{row.plant}</td>
-                <td className="num">{row.unitCost.toFixed(2)}</td>
-                <td className="num">{num(row.dailyCapacity)}</td>
-                <td className="num">{num(row.products)}</td>
-                <td>{row.ports.join(", ") || "-"}</td>
-                <td>{row.vmi ? "yes" : ""}</td>
-                <td className="num">{num(row.historicalOrders)}</td>
-                <td className="num">{num(row.singlePlantOrders)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable columns={warehouseColumns} rows={analysis.warehouses} rowKey={(row) => row.plant} unit="warehouses" />
       <Caption>Table 4: Warehouse economics and connectivity (from WhCosts, WhCapacities, ProductsPerPlant, PlantPorts, VmiCustomers)</Caption>
 
       <h2>6. Freight Rates</h2>
       <div className="two-col">
         <div>
-          <table className="data">
-            <thead><tr><th>Carrier</th><th className="num">Air rate lines</th><th className="num">Ground rate lines</th><th className="num">Transit (days)</th></tr></thead>
-            <tbody>
-              {analysis.rateCarriers.map((row) => (
-                <tr key={row.carrier}><td>{row.carrier}</td><td className="num">{row.air || "-"}</td><td className="num">{row.ground || "-"}</td><td className="num">{row.minTransit === row.maxTransit ? row.minTransit : `${row.minTransit}-${row.maxTransit}`}</td></tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable columns={carrierColumns} rows={analysis.rateCarriers} rowKey={(row) => row.carrier} unit="carriers" filters={false} />
           <Caption>Table 5: Freight rate lines per carrier</Caption>
         </div>
         <figure style={{ marginTop: 8 }}>

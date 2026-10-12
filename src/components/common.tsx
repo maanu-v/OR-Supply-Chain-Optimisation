@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { ExistingComparison, PlanScope } from "@/lib/combined";
 import type { SolveSummary } from "@/lib/scenarios";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import type { Assignment } from "@/lib/types";
 
 // matplotlib "tab10" colours, same as the notebook plots
@@ -67,82 +67,49 @@ export function PlantLoadChart({ result, figure }: { result: SolveSummary; figur
   );
 }
 
+type ConstraintRow = SolveSummary["constraints"][number];
+
+const slackColumns: DataColumn<ConstraintRow>[] = [
+  { id: "plant", header: "Warehouse", value: (row) => row.plant },
+  { id: "used", header: "Orders used", value: (row) => row.used, numeric: true, cell: (row) => num(row.used) },
+  { id: "rhs", header: "Capacity (RHS)", value: (row) => row.rhs, numeric: true, cell: (row) => num(row.rhs) },
+  { id: "slack", header: "Slack", value: (row) => row.slack, numeric: true, cell: (row) => num(row.slack) },
+  { id: "slackPercent", header: "Slack %", value: (row) => row.slackPercent, numeric: true, cell: (row) => `${row.slackPercent.toFixed(1)}%` },
+  { id: "binding", header: "Constraint", value: (row) => (row.slack === 0 ? "binding" : "non-binding"), cell: (row) => (row.slack === 0 ? <b>binding</b> : "non-binding") },
+];
+
 export function SlackTable({ result, table }: { result: SolveSummary; table: string }) {
   const rows = result.constraints.filter((row) => row.rhs > 0);
   return (
     <>
-      <div className="scroll">
-        <table className="data">
-          <thead>
-            <tr><th>Warehouse</th><th className="num">Orders used</th><th className="num">Capacity (RHS)</th><th className="num">Slack</th><th className="num">Slack %</th><th>Constraint</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.plant}>
-                <td>{row.plant}</td>
-                <td className="num">{num(row.used)}</td>
-                <td className="num">{num(row.rhs)}</td>
-                <td className="num">{num(row.slack)}</td>
-                <td className="num">{row.slackPercent.toFixed(1)}%</td>
-                <td>{row.slack === 0 ? <b>binding</b> : "non-binding"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable columns={slackColumns} rows={rows} rowKey={(row) => row.plant} unit="warehouses" />
       <Caption>{table}: Capacity constraints of the solved plan. A binding constraint has zero slack; capacity can fall by the slack amount without making the current plan infeasible.</Caption>
     </>
   );
 }
 
+const assignmentColumns: DataColumn<Assignment>[] = [
+  { id: "orderId", header: "Order ID", value: (row) => row.orderId },
+  { id: "plant", header: "Warehouse", value: (row) => row.plant, solver: true },
+  { id: "originPort", header: "Origin port", value: (row) => row.originPort, solver: true },
+  { id: "carrier", header: "Carrier", value: (row) => row.carrier ?? "customer", solver: true, className: (row) => (row.carrier ? "solver" : undefined) },
+  { id: "mode", header: "Mode", value: (row) => row.mode ?? "-", solver: true, className: (row) => (row.mode ? "solver" : undefined) },
+  { id: "service", header: "Service", value: (row) => row.routeServiceLevel ?? "CRF" },
+  { id: "transit", header: "Transit (days)", value: (row) => row.transitDays, numeric: true, cell: (row) => row.transitDays ?? "-" },
+  { id: "warehouseCost", header: "Warehouse cost", value: (row) => row.warehouseCost, numeric: true, cell: (row) => num(row.warehouseCost, 2) },
+  { id: "freightCost", header: "Freight cost", value: (row) => row.freightCost, numeric: true, cell: (row) => num(row.freightCost, 2) },
+  { id: "totalCost", header: "Total", value: (row) => row.totalCost, numeric: true, cell: (row) => num(row.totalCost, 2) },
+];
+
 export function AssignmentTable({ assignments, table }: { assignments: Assignment[]; table: string }) {
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(0);
-  const pageSize = 25;
-  const rows = useMemo(() => {
-    const text = query.trim().toLowerCase();
-    if (!text) return assignments;
-    return assignments.filter((row) => [row.orderId, row.plant, row.originPort, row.carrier ?? "", row.mode ?? ""].some((value) => value.toLowerCase().includes(text)));
-  }, [assignments, query]);
-  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const shown = rows.slice(page * pageSize, (page + 1) * pageSize);
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <input className="search" value={query} placeholder="Search order ID, plant, port, carrier..." onChange={(event) => { setQuery(event.target.value); setPage(0); }} />
-        <div className="pager">
-          <span>{num(rows.length)} orders · page {page + 1} of {pages}</span>
-          <button disabled={page === 0} onClick={() => setPage(page - 1)}>Prev</button>
-          <button disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Next</button>
-        </div>
-      </div>
       <p style={{ fontSize: 13, color: "#5c5c5c", margin: "10px 0 4px" }}>
         <span className="legend-swatch" />Highlighted columns are the decisions made by the optimisation solver (warehouse, origin port,
         carrier and mode). For CRF orders the customer arranges freight, so only the warehouse and port are decided by us.
+        Click a column header to sort; use the boxes under the headers to filter.
       </p>
-      <div className="scroll">
-        <table className="data">
-          <thead>
-            <tr><th>Order ID</th><th className="solver">Warehouse</th><th className="solver">Origin port</th><th className="solver">Carrier</th><th className="solver">Mode</th><th>Service</th><th className="num">Transit (days)</th><th className="num">Warehouse cost</th><th className="num">Freight cost</th><th className="num">Total</th></tr>
-          </thead>
-          <tbody>
-            {shown.map((row) => (
-              <tr key={row.orderId}>
-                <td>{row.orderId}</td>
-                <td className="solver">{row.plant}</td>
-                <td className="solver">{row.originPort}</td>
-                <td className={row.carrier ? "solver" : undefined}>{row.carrier ?? "customer"}</td>
-                <td className={row.mode ? "solver" : undefined}>{row.mode ?? "-"}</td>
-                <td>{row.routeServiceLevel ?? "CRF"}</td>
-                <td className="num">{row.transitDays ?? "-"}</td>
-                <td className="num">{num(row.warehouseCost, 2)}</td>
-                <td className="num">{num(row.freightCost, 2)}</td>
-                <td className="num">{num(row.totalCost, 2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable columns={assignmentColumns} rows={assignments} rowKey={(row) => row.orderId} unit="orders" pageSize={25} searchPlaceholder="Search order ID, plant, port, carrier..." />
       <Caption>{table}: Order-level routing plan chosen by the solver</Caption>
     </>
   );

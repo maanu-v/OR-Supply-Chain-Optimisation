@@ -1,10 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import { AssignmentTable, Caption, ComparisonTable, num, PlantLoadChart, ResultTable, ScopeChoice } from "@/components/common";
 import type { BulkResult } from "@/lib/bulk";
 import { bulkColumns } from "@/lib/bulk-format";
 import type { PlanScope } from "@/lib/combined";
+
+type RejectedRow = BulkResult["rejected"][number];
+
+const rejectedColumns: DataColumn<RejectedRow>[] = [
+  { id: "row", header: "File row", numeric: true, value: (row) => row.row },
+  { id: "orderId", header: "Order ID", value: (row) => row.orderId },
+  { id: "reason", header: "Reason", value: (row) => row.reason },
+];
 
 const planColumns = ["Order ID", "Product ID", "Customer", "Service Level", "Unit quantity", "Weight", "Warehouse", "Origin port", "Carrier", "Mode", "Transit days", "Warehouse cost", "Freight cost", "Total cost"];
 
@@ -114,14 +123,7 @@ export function BulkTab() {
           {result.rejected.length > 0 && (
             <>
               <h2>{result.totalCost !== null ? 4 : 3}. Rejected Rows</h2>
-              <div className="scroll">
-                <table className="data">
-                  <thead><tr><th className="num">File row</th><th>Order ID</th><th>Reason</th></tr></thead>
-                  <tbody>
-                    {result.rejected.map((row) => <tr key={`${row.row}-${row.orderId}`}><td className="num">{row.row}</td><td>{row.orderId}</td><td>{row.reason}</td></tr>)}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable columns={rejectedColumns} rows={result.rejected} rowKey={(row) => `${row.row}-${row.orderId}`} unit="rows" searchPlaceholder="Search order ID or reason..." />
               <Caption>Table {result.totalCost !== null ? first + 2 : first}: Rows left out of the plan and the filter that removed them</Caption>
             </>
           )}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Caption, ComparisonTable, num, postJson, ScopeChoice } from "@/components/common";
 import type { PlanScope } from "@/lib/combined";
+import { DataTable, type DataColumn } from "@/components/data-table";
 import { SearchSelect } from "@/components/search-select";
 import type { DashboardAnalysis } from "@/lib/analysis";
 import type { PlannerInput, PlannerObjective, PlannerResult, PlannerRoute } from "@/lib/planner";
@@ -20,6 +21,24 @@ const dollars = (value: number) => `$${num(value, 2)}`;
 function objectiveValue(route: PlannerRoute, objective: PlannerObjective) {
   if (objective === "time") return `${route.score} days`;
   return dollars(route.score);
+}
+
+type RankedRoute = { route: PlannerRoute; index: number };
+
+function rankingColumns(best: PlannerRoute, marker: string, objective: PlannerObjective): DataColumn<RankedRoute>[] {
+  return [
+    { id: "rank", header: "Rank", numeric: true, value: ({ index }) => index + 1, cell: ({ route, index }) => `${index + 1}${route === best ? ` (${marker})` : ""}` },
+    { id: "plant", header: "Warehouse", solver: true, value: ({ route }) => route.plant },
+    { id: "originPort", header: "Origin port", solver: true, value: ({ route }) => route.originPort },
+    { id: "carrier", header: "Carrier", solver: true, value: ({ route }) => route.carrier ?? "customer", className: ({ route }) => (route.carrier ? "solver" : undefined) },
+    { id: "mode", header: "Mode", solver: true, value: ({ route }) => route.mode ?? "-", className: ({ route }) => (route.mode ? "solver" : undefined) },
+    { id: "service", header: "Service", value: ({ route }) => route.serviceLevel ?? "CRF" },
+    { id: "transit", header: "Transit (days)", numeric: true, value: ({ route }) => route.transitDays, cell: ({ route }) => route.transitDays ?? "-" },
+    { id: "warehouseCost", header: "Warehouse cost", numeric: true, value: ({ route }) => route.warehouseCost, cell: ({ route }) => num(route.warehouseCost, 2) },
+    { id: "freightCost", header: "Freight cost", numeric: true, value: ({ route }) => route.freightCost, cell: ({ route }) => num(route.freightCost, 2) },
+    { id: "totalCost", header: "Total cost", numeric: true, value: ({ route }) => route.totalCost, cell: ({ route }) => num(route.totalCost, 2) },
+    { id: "objective", header: "Objective", numeric: true, value: ({ route }) => route.score, cell: ({ route }) => objectiveValue(route, objective) },
+  ];
 }
 
 /** Layered drawing of every feasible option; the optimal path is drawn thick in blue. */
@@ -220,30 +239,13 @@ export function PlannerTab({ analysis }: { analysis: DashboardAnalysis }) {
             <Caption>Figure 1: Every feasible warehouse → port → carrier path for this order; the chosen path is highlighted</Caption>
 
             <h3>Ranking of feasible routes</h3>
-            <div className="scroll">
-              <table className="data">
-                <thead>
-                  <tr><th className="num">Rank</th><th className="solver">Warehouse</th><th className="solver">Origin port</th><th className="solver">Carrier</th><th className="solver">Mode</th><th>Service</th><th className="num">Transit (days)</th><th className="num">Warehouse cost</th><th className="num">Freight cost</th><th className="num">Total cost</th><th className="num">Objective</th></tr>
-                </thead>
-                <tbody>
-                  {ranked.map(({ route, index }) => (
-                    <tr key={route.routeId} className={route === best ? "base" : undefined}>
-                      <td className="num">{index + 1}{route === best ? (combined ? " (chosen)" : " (optimal)") : ""}</td>
-                      <td className="solver">{route.plant}</td>
-                      <td className="solver">{route.originPort}</td>
-                      <td className={route.carrier ? "solver" : undefined}>{route.carrier ?? "customer"}</td>
-                      <td className={route.mode ? "solver" : undefined}>{route.mode ?? "-"}</td>
-                      <td>{route.serviceLevel ?? "CRF"}</td>
-                      <td className="num">{route.transitDays ?? "-"}</td>
-                      <td className="num">{num(route.warehouseCost, 2)}</td>
-                      <td className="num">{num(route.freightCost, 2)}</td>
-                      <td className="num">{num(route.totalCost, 2)}</td>
-                      <td className="num">{objectiveValue(route, solvedFor.objective)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={rankingColumns(best, combined ? "chosen" : "optimal", solvedFor.objective)}
+              rows={ranked}
+              rowKey={({ route }) => route.routeId}
+              rowClass={({ route }) => (route === best ? "base" : undefined)}
+              unit="routes"
+            />
             <Caption>Table {next}: Best {Math.min(15, result.routes.length)} of {num(result.routes.length)} feasible routes under the chosen objective</Caption>
           </>
         )
